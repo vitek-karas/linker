@@ -174,6 +174,11 @@ namespace Mono.Linker {
 			return marked.Contains (provider);
 		}
 
+		public IEnumerable<IMetadataTokenProvider> GetMarked()
+		{
+			return marked;
+		}
+
 		public bool IsMarked (CustomAttribute attribute)
 		{
 			return marked_attributes.Contains (attribute);
