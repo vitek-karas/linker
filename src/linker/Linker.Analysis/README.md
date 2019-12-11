@@ -19,7 +19,7 @@ Run the linker specifying the desired set of roots, optimizations, etc. A summar
 For example: 
 
 ```
-linker> dotnet ./src/ILLink.Tasks/bin/Debug/netcoreapp2.0/illink.dll -a console -c link -u link -d testapps/console/out/ --skip-unresolved true --ignore-descriptors true --verbose --dump-dependencies --used-attrs-only true -out testapps/console/linked --analyze-for-trim
+linker> dotnet ./src/ILLink.Tasks/bin/Debug/netcoreapp2.0/illink.dll -a console -c link -u link -d testapps/console/out/ --skip-unresolved true --ignore-descriptors true --verbose --used-attrs-only true -out testapps/console/linked --analyze-for-trim
 ```
 
 Here, the command-line flags have the following meaning.
@@ -29,7 +29,7 @@ Here, the command-line flags have the following meaning.
 -d testapps/console/out:       Tells the linker where to find the dependencies of the application.
 --skip-unresolved:             Continue when encountering unresolved dependencies.
 --ignore-descriptors true:     Don't root types/members specified in embedded .xml descriptors. Use this option to see only what is kept by the linker's analysis.
---verbose:                     Output extra info to stdout, such as the methods with unanalyzed reflection patterns.
+--verbose:                     Output extra info to stdout, such as the action taken per assembly.
 --used-attrs-only true:        Only keep custom attributes when the attribute type is referenced. (Otherwise this keeps all custom attributes on kept types).
 --out testapps/console/linked: Output the linked app into the specified directory.
 ```
@@ -46,7 +46,7 @@ The tool finds callers of the interesting method and reports partial "call stack
 
 The callstacks stop at public APIs or virtual methods. Stopping at virtual methods avoid lots of redundancy in cases where a very common virtual method (like `ToString`) has an override that is unsafe - which would otherwise show up everywhere that `ToString` is called.
 
-The linker already attempts to understand some simple reflection patterns. When it sees a pattern that it doesn't recognize, the containing method is marked as `LinkerUnanalyzed`. Cases where the linker *does* understand a relfection pattern are not yet taken into account. Because we have defined simulated attributes for reflection APIs, most of these will show up as calls to reflection APIs with the `KnownReflection` attribute to indicate that it is not generally safe.
+The linker already attempts to understand some simple reflection patterns. When it sees a pattern that it doesn't recognize, the containing method is marked as `LinkerUnanalyzed`. Cases where the linker *does* understand a relfection pattern are not yet taken into account. Because we have defined simulated attributes for reflection APIs, most of understood ones will show up as calls to reflection APIs with the `KnownReflection` attribute to indicate that it is not generally safe.
 
 Methods that look "unsafe" but are actually safe can be attributed with a specific attribute to track the feature area, or with `AnnotatedLinkerFriendly` which will prevent the method from showing up in "unsafe" callstacks. The tool may still report callstacks that only end up in `AnnotatedLinkerFriendly` methods (for now), though the plan is for these not to show up in the output.
 
