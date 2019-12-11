@@ -19,7 +19,7 @@ Run the linker specifying the desired set of roots, optimizations, etc. A summar
 For example: 
 
 ```
-linker> dotnet ./src/ILLink.Tasks/bin/Debug/netcoreapp2.0/illink.dll -a console -c link -u link -d testapps/console/out/ --skip-unresolved true --ignore-descriptors true --verbose --used-attrs-only true -out testapps/console/linked --analyze-for-trim
+linker> dotnet ./src/ILLink.Tasks/bin/Debug/netcoreapp2.0/illink.dll -a console -c link -u link -d testapps/console/out/ --skip-unresolved true --verbose --used-attrs-only true -out testapps/console/linked --analyze-for-trim
 ```
 
 Here, the command-line flags have the following meaning.
@@ -28,7 +28,6 @@ Here, the command-line flags have the following meaning.
 -c link -u link:               Tells the linker to trim all application (-u) and framework (-c) libraries unless otherwise specified.
 -d testapps/console/out:       Tells the linker where to find the dependencies of the application.
 --skip-unresolved:             Continue when encountering unresolved dependencies.
---ignore-descriptors true:     Don't root types/members specified in embedded .xml descriptors. Use this option to see only what is kept by the linker's analysis.
 --verbose:                     Output extra info to stdout, such as the action taken per assembly.
 --used-attrs-only true:        Only keep custom attributes when the attribute type is referenced. (Otherwise this keeps all custom attributes on kept types).
 --out testapps/console/linked: Output the linked app into the specified directory.
