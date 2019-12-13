@@ -2377,6 +2377,17 @@ namespace Mono.Linker.Steps {
 
 			var methodCalledType = methodCalled.DeclaringType;
 
+			// IMPORTANT:
+			// The promise of this code is to report either succes (RecognizedPattern) or failure (UnrecognizedPattern) for each
+			// reflection method which can report success. So for example if there's a chance that call to Type.GetType(String) 
+			// can be successfully recognized and reported as recognzied pattern, then all calls to Type.GetType(String) must report
+			// something.
+			// To achieve this, the code below should "return" when it finds a method it will never look into.
+			// For all methods it can look into, it should just "break" - the infra around will make sure that something gets reported.
+			// For that to work pattern recognition can only be reported via the local helper methods.
+
+			bool reportedPatternRecognition = false;
+
 			switch (methodCalledType.Name) {
 				//
 				// System.Type
@@ -2388,7 +2399,7 @@ namespace Mono.Linker.Steps {
 					// which needs to be analyzed. The assumption is that all overloads have the same semantics.
 					// (for example that all overload of GetConstructor if used require the specified type to have a .ctor).
 					if (methodCalling.DeclaringType == methodCalling.DeclaringType && methodCalling.Name == methodCalled.Name)
-						break;
+						return;
 
 					switch (methodCalled.Name) {
 						//
@@ -2473,7 +2484,7 @@ namespace Mono.Linker.Steps {
 								var first_arg_instr = GetInstructionAtStackDepth (instructions, instructionIndex - 1, methodCalledDefinition.Parameters.Count);
 								if (first_arg_instr < 0) {
 									ReportUnrecognizedReflectionCallPattern ($"Reflection call '{methodCalled.FullName}' inside '{body.Method.FullName}' couldn't be decomposed");
-									return;
+									break;
 								}
 
 								//
@@ -2482,14 +2493,14 @@ namespace Mono.Linker.Steps {
 								var first_arg = instructions [first_arg_instr];
 								if (first_arg.OpCode != OpCodes.Ldstr) {
 									ReportUnrecognizedReflectionCallPattern ($"Reflection call '{methodCalled.FullName}' inside '{body.Method.FullName}' was detected with argument which cannot be analyzed");
-									return;
+									break;
 								}
 
 								TypeDefinition foundType = ResolveFullyQualifiedTypeName ((string)first_arg.Operand);
 								if (foundType == null)
-									return;
+									break;
 
-								_context.PatternRecorder.RecognizedReflectionTypeAccessPattern (methodCalling, methodCalledDefinition, foundType);
+								ReportRecognizedReflectionTypeAccessPattern (methodCalling, methodCalledDefinition, foundType);
 								_context.Tracer.Push ($"Reflection-{foundType}");
 								try {
 									MarkType (foundType);
@@ -2498,6 +2509,9 @@ namespace Mono.Linker.Steps {
 								}
 							}
 							break;
+
+						default:
+							return;
 					}
 
 					break;
@@ -2510,7 +2524,7 @@ namespace Mono.Linker.Steps {
 					TypeDefinition declaringType;
 
 					if (!methodCalledDefinition.IsStatic)
-						break;
+						return;
 
 					switch (methodCalled.Name) {
 
@@ -2522,7 +2536,7 @@ namespace Mono.Linker.Steps {
 								var first_arg_instr = GetInstructionAtStackDepth (instructions, instructionIndex - 1, 4);
 								if (first_arg_instr < 0) {
 									ReportUnrecognizedReflectionCallPattern ($"Expression call '{methodCalled.FullName}' inside '{body.Method.FullName}' couldn't be decomposed");
-									return;
+									break;
 								}
 
 								var first_arg = instructions [first_arg_instr];
@@ -2532,14 +2546,14 @@ namespace Mono.Linker.Steps {
 								declaringType = FindReflectionTypeForLookup (instructions, first_arg_instr);
 								if (declaringType == null) {
 									ReportUnrecognizedReflectionCallPattern ($"Expression call '{methodCalled.FullName}' inside '{body.Method.FullName}' was detected with 1st argument which cannot be analyzed");
-									return;
+									break;
 								}
 
 								var second_arg_instr = GetInstructionAtStackDepth (instructions, instructionIndex - 1, 3);
 								second_argument = instructions [second_arg_instr];
 								if (second_argument.OpCode != OpCodes.Ldstr) {
 									ReportUnrecognizedReflectionCallPattern ($"Expression call '{methodCalled.FullName}' inside '{body.Method.FullName}' was detected with 2nd argument which cannot be analyzed");
-									return;
+									break;
 								}
 
 								var name = (string)second_argument.Operand;
@@ -2559,7 +2573,7 @@ namespace Mono.Linker.Steps {
 								var second_arg_instr = GetInstructionAtStackDepth (instructions, instructionIndex - 1, 2);
 								if (second_arg_instr < 0) {
 									ReportUnrecognizedReflectionCallPattern ($"Expression call '{methodCalled.FullName}' inside '{body.Method.FullName}' couldn't be decomposed");
-									return;
+									break;
 								}
 
 								var second_arg = instructions [second_arg_instr];
@@ -2569,14 +2583,14 @@ namespace Mono.Linker.Steps {
 								declaringType = FindReflectionTypeForLookup (instructions, second_arg_instr);
 								if (declaringType == null) {
 									ReportUnrecognizedReflectionCallPattern ($"Expression call '{methodCalled.FullName}' inside '{body.Method.FullName}' was detected with 2nd argument which cannot be analyzed");
-									return;
+									break;
 								}
 
 								var third_arg_inst = GetInstructionAtStackDepth (instructions, instructionIndex - 1, 1);
 								var third_argument = instructions [third_arg_inst];
 								if (third_argument.OpCode != OpCodes.Ldstr) {
 									ReportUnrecognizedReflectionCallPattern ($"Expression call '{methodCalled.FullName}' inside '{body.Method.FullName}' was detected with the 3rd argument which cannot be analyzed");
-									return;
+									break;
 								}
 
 								var name = (string)third_argument.Operand;
@@ -2609,7 +2623,7 @@ namespace Mono.Linker.Steps {
 								var first_arg_instr = GetInstructionAtStackDepth (instructions, instructionIndex - 1, 1);
 								if (first_arg_instr < 0) {
 									ReportUnrecognizedReflectionCallPattern ($"Expression call '{methodCalled.FullName}' inside '{body.Method.FullName}' couldn't be decomposed");
-									return;
+									break;
 								}
 
 								var first_arg = instructions [first_arg_instr];
@@ -2619,12 +2633,15 @@ namespace Mono.Linker.Steps {
 								declaringType = FindReflectionTypeForLookup (instructions, first_arg_instr);
 								if (declaringType == null) {
 									ReportUnrecognizedReflectionCallPattern ($"Expression call '{methodCalled.FullName}' inside '{body.Method.FullName}' was detected with 1st argument which cannot be analyzed");
-									return;
+									break;
 								}
 
 								MarkMethodsFromReflectionCall (declaringType, ".ctor", 0, BindingFlags.Instance, parametersCount: 0);
 							}
 							break;
+
+						default:
+							return;
 					}
 
 					break;
@@ -2661,6 +2678,9 @@ namespace Mono.Linker.Steps {
 						case "GetRuntimeEvent":
 							ProcessSystemTypeGetMemberLikeCall (System.Reflection.MemberTypes.Event, instructionIndex - 1, thisExtension: true);
 							break;
+
+						default:
+							return;
 					}
 
 					break;
@@ -2693,6 +2713,9 @@ namespace Mono.Linker.Steps {
 						case "CreateInstanceFromAndUnwrap":
 							ProcessActivatorCallWithStrings (instructionIndex - 1, methodCalled.Parameters.Count < 4);
 							break;
+
+						default:
+							return;
 					}
 
 					break;
@@ -2713,15 +2736,16 @@ namespace Mono.Linker.Steps {
 						ReportUnrecognizedReflectionCallPattern ($"Activator call '{methodCalled.FullName}' inside '{body.Method.FullName}' is not yet supported");
 						break;
 					}
-
-					break;
+					else {
+						return;
+					}
 
 				//
 				// System.Activator
 				//
 				case "Activator" when methodCalledType.Namespace == "System":
 					if (!methodCalledDefinition.IsStatic)
-						break;
+						return;
 
 					switch (methodCalled.Name) {
 						//
@@ -2744,20 +2768,20 @@ namespace Mono.Linker.Steps {
 
 								if (parameters [0].ParameterType.MetadataType == MetadataType.String) {
 									ProcessActivatorCallWithStrings (instructionIndex - 1, parameters.Count < 4);
-									return;
+									break;
 								}
 
 								var first_arg_instr = GetInstructionAtStackDepth (instructions, instructionIndex - 1, methodCalledDefinition.Parameters.Count);
 								if (first_arg_instr < 0) {
 									ReportUnrecognizedReflectionCallPattern ($"Activator call '{methodCalled.FullName}' inside '{body.Method.FullName}' couldn't be decomposed");
-									return;
+									break;
 								}
 
 								if (parameters [0].ParameterType.IsTypeOf ("System", "Type")) {
 									declaringType = FindReflectionTypeForLookup (instructions, first_arg_instr + 1);
 									if (declaringType == null) {
 										ReportUnrecognizedReflectionCallPattern ($"Activator call '{methodCalled.FullName}' inside '{body.Method.FullName}' was detected with 1st argument expression which cannot be analyzed");
-										return;
+										break;
 									}
 
 									BindingFlags bindingFlags = BindingFlags.Instance;
@@ -2783,7 +2807,7 @@ namespace Mono.Linker.Steps {
 									}
 
 									MarkMethodsFromReflectionCall (declaringType, ".ctor", 0, bindingFlags, parametersCount);
-									return;
+									break;
 								}
 							}
 
@@ -2804,9 +2828,19 @@ namespace Mono.Linker.Steps {
 						case "CreateInstanceFrom":
 							ProcessActivatorCallWithStrings (instructionIndex - 1, methodCalled.Parameters.Count < 4);
 							break;
+
+						default:
+							return;
 					}
 
 					break;
+
+				default:
+					return;
+			}
+
+			if (!reportedPatternRecognition) {
+				ReportUnrecognizedReflectionCallPattern ($"Call to'`{methodCalled.FullName}' inside '{body.Method.FullName}' could not be recognized as a known pattern");
 			}
 
 			//
@@ -2962,8 +2996,7 @@ namespace Mono.Linker.Steps {
 					if (parametersCount != null && parametersCount != method.Parameters.Count)
 						continue;
 
-					_context.PatternRecorder.RecognizedReflectionMethodAccessPattern (methodCalling, methodCalledDefinition, method);
-
+					ReportRecognizedReflectionMethodAccessPattern (methodCalling, methodCalledDefinition, method);
 					Tracer.Push ($"Reflection-{method}");
 					try {
 						MarkIndirectlyCalledMethod (method);
@@ -2998,7 +3031,7 @@ namespace Mono.Linker.Steps {
 						}
 
 						if (markedAny) {
-							_context.PatternRecorder.RecognizedReflectionPropertyAccessPattern (methodCalling, methodCalledDefinition, property);
+							ReportRecognizedReflectionPropertyAccessPattern (methodCalling, methodCalledDefinition, property);
 							MarkProperty (property);
 						}
 
@@ -3017,7 +3050,7 @@ namespace Mono.Linker.Steps {
 					if (staticOnly && !field.IsStatic)
 						continue;
 
-					_context.PatternRecorder.RecognizedReflectionFieldAccessPattern (methodCalling, methodCalledDefinition, field);
+					ReportRecognizedReflectionFieldAccessPattern (methodCalling, methodCalledDefinition, field);
 
 					Tracer.Push ($"Reflection-{field}");
 					try {
@@ -3036,7 +3069,7 @@ namespace Mono.Linker.Steps {
 					if (eventInfo.Name != name)
 						continue;
 
-					_context.PatternRecorder.RecognizedReflectionEventAccessPattern (methodCalling, methodCalledDefinition, eventInfo);
+					ReportRecognizedReflectionEventAccessPattern (methodCalling, methodCalledDefinition, eventInfo);
 
 					Tracer.Push ($"Reflection-{eventInfo}");
 					try {
@@ -3049,7 +3082,38 @@ namespace Mono.Linker.Steps {
 
 			void ReportUnrecognizedReflectionCallPattern(string message)
 			{
+				reportedPatternRecognition = true;
 				_context.PatternRecorder.UnrecognizedReflectionCallPattern (methodCalling, methodCalledDefinition, message);
+			}
+
+			void ReportRecognizedReflectionTypeAccessPattern (MethodDefinition sourceMethod, MethodDefinition reflectionMethod, TypeDefinition accessedType)
+			{
+				reportedPatternRecognition = true;
+				_context.PatternRecorder.RecognizedReflectionTypeAccessPattern (sourceMethod, reflectionMethod, accessedType);
+			}
+
+			void ReportRecognizedReflectionMethodAccessPattern (MethodDefinition sourceMethod, MethodDefinition reflectionMethod, MethodDefinition accessedMethod)
+			{
+				reportedPatternRecognition = true;
+				_context.PatternRecorder.RecognizedReflectionMethodAccessPattern (sourceMethod, reflectionMethod, accessedMethod);
+			}
+
+			void ReportRecognizedReflectionPropertyAccessPattern (MethodDefinition sourceMethod, MethodDefinition reflectionMethod, PropertyDefinition accessedProperty)
+			{
+				reportedPatternRecognition = true;
+				_context.PatternRecorder.RecognizedReflectionPropertyAccessPattern (sourceMethod, reflectionMethod, accessedProperty);
+			}
+
+			void ReportRecognizedReflectionFieldAccessPattern (MethodDefinition sourceMethod, MethodDefinition reflectionMethod, FieldDefinition accessedField)
+			{
+				reportedPatternRecognition = true;
+				_context.PatternRecorder.RecognizedReflectionFieldAccessPattern (sourceMethod, reflectionMethod, accessedField);
+			}
+
+			void ReportRecognizedReflectionEventAccessPattern (MethodDefinition sourceMethod, MethodDefinition reflectionMethod, EventDefinition accessedEvent)
+			{
+				reportedPatternRecognition = true;
+				_context.PatternRecorder.RecognizedReflectionEventAccessPattern (sourceMethod, reflectionMethod, accessedEvent);
 			}
 		}
 
