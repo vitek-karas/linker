@@ -1,6 +1,8 @@
 using Mono.Cecil;
 using Mono.Linker.Analysis;
 using System.IO;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Mono.Linker.Steps
 {
@@ -29,8 +31,11 @@ namespace Mono.Linker.Steps
 			//    with "interesting", "public", "unanalyzed"
 			//    don't record virtual calls as part of it.
 			var apiFilter = new ApiFilter (reflectionPatternRecorder.UnanalyzedMethods, entryPointsStep.EntryPoints);
-			var cg = new CallGraph (callgraphDependencyRecorder.Dependencies, apiFilter);
-			cg.RemoveVirtualCalls();
+			var cg = new CallGraph (
+				callgraphDependencyRecorder.DirectCalls,
+				callgraphDependencyRecorder.VirtualCalls,
+				callgraphDependencyRecorder.Overrides,
+				apiFilter);
 
 			// 2. remove linkeranalyzed edges
 			cg.RemoveCalls(patternRecorder.ResolvedReflectionCalls);
@@ -55,6 +60,9 @@ namespace Mono.Linker.Steps
 			cg.RemoveMethods(toRemove.Select(i => mapping.intToMethod[i]).ToList());
 			}
 
+			// remove virtual calls
+			cg.RemoveVirtualCalls();
+			
 			{
 			var (icg, mapping) = IntCallGraph.CreateFrom (cg);
 

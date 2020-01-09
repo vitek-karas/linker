@@ -118,6 +118,21 @@ namespace Mono.Linker
 			}
 		}
 
+		public void RecordDirectCall (MethodDefinition soure, MethodDefinition target)
+		{
+			// do nothing, as this recorder doesn't treat direct calls specially.
+		}
+
+		public void RecordVirtualCall (MethodDefinition soure, MethodDefinition target)
+		{
+			// do nothing, as this recorder doesn't treat virtual calls specially.
+		}
+
+		public void RecordOverride (MethodDefinition soure, MethodDefinition target)
+		{
+			// do nothing, as this recorder doesn't treat overrides specially.
+		}
+
 		static bool IsAssemblyBound (TypeDefinition td)
 		{
 			do {

@@ -175,6 +175,7 @@ namespace Mono.Linker.Analysis
 			isVirtualMethod = new bool [callGraph.Methods.Count];
 			isAnnotatedSafeMethod = new bool [callGraph.Methods.Count];
 			bool[] isPublicOrVirtual = new bool [callGraph.Methods.Count];
+			bool[] isEntry = new bool [callGraph.Methods.Count];
 			int [] [] safeEdges = new int [callGraph.Methods.Count] [];
 			for (int i = 0; i < intCallGraph.numMethods; i++) {
 				var cecilMethod = mapping.intToMethod [i];
@@ -196,20 +197,14 @@ namespace Mono.Linker.Analysis
 				if (intCallGraph.isEntry [i] || isVirtualMethod [i]) {
 					isPublicOrVirtual [i] = true;
 				}
+				if (intCallGraph.isEntry [i]) {
+					isEntry [i] = true;
+				}
 				if (apiFilter.IsAnnotatedLinkerFriendlyApi (cecilMethod)) {
 					isAnnotatedSafeMethod [i] = true;
 				}
-				if (resolvedReflectionCalls.TryGetValue(cecilMethod, out HashSet<MethodDefinition> callees)) {
-					int [] safeCallees = new int [callees.Count];
-					int j = 0;
-					foreach (MethodDefinition calleeMethodDef in callees) {
-						int calleeMethodIndex = mapping.methodToInt [calleeMethodDef];
-						safeCallees [j++] = calleeMethodIndex;
-					}
 
-					safeEdges [i] = safeCallees;
 				}
-			}
 
 			Console.WriteLine ("found " + intCallGraph.numMethods + " methods");
 			Console.WriteLine ("found " + numEntryMethods + " entry methods");
@@ -265,12 +260,12 @@ namespace Mono.Linker.Analysis
 			IntBFS.AllPairsBFS (
 				neighbors: intCallGraph.callers,                 // search bottom-up (callees to callers).
 				isSource: intCallGraph.isInteresting,            // look for a shortest path from each "interesting" method...
-				isDestination: isPublicOrVirtual,                // ...to each public or virtual method.
+				isDestination: isEntry,                          // ...to each "entry" method
 				numMethods: intCallGraph.numMethods,
 				excludePathsToSources: true,                     // ...that don't go through any other "interesting" methods.
 				ignoreEdgesTo: isAnnotatedSafeMethod,            // ignore calls from annotated safe methods (edges to safe methods in the bottom-up case)
 				ignoreEdgesFrom: isVirtualMethod,                // ignore calls to virtual methods (edges from virtual methods in the bottom-up case)
-				ignoreEdges: safeEdges,                          // ignore all edges already marked as safe
+				//ignoreEdges: safeEdges,                          // ignore all edges already marked as safe
 
 				// don't report paths that go through another public or virtual method
 				//   this is ensured by the BFS algorithm - it won't consider edges from a destination node. (calls to a public/virtual)
@@ -468,6 +463,9 @@ namespace Mono.Linker.Analysis
 					formatter.WriteStacktrace (st);
 				}
 			} else {
+				if (stacktracesPerGroup == null) {
+					return;
+				}
 				var ordered = stacktracesPerGroup.OrderByDescending (e => e.Value.Count);
 				formatter.WriteGroupedStacktraces (ordered);
 			}

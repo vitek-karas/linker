@@ -22,6 +22,7 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
+using Mono.Cecil;
 
 namespace Mono.Linker
 {
@@ -40,5 +41,8 @@ namespace Mono.Linker
 		/// <remarks>The source and target are typically Cecil metadata objects (MethodDefinition, TypeDefinition, ...)
 		/// but they can also be the linker steps or really any other object.</remarks>
 		void RecordDependency (object source, object target, bool marked);
+		void RecordDirectCall (MethodDefinition source, MethodDefinition target);
+		void RecordVirtualCall (MethodDefinition source, MethodDefinition target);
+		void RecordOverride (MethodDefinition source, MethodDefinition target);
 	}
 }
