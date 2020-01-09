@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using Mono.Cecil;
 
 namespace Mono.Linker.Tests.TestCasesRunner
 {
@@ -20,6 +21,21 @@ namespace Mono.Linker.Tests.TestCasesRunner
 				Target = target.ToString (),
 				Marked = marked
 			});
+		}
+
+		public void RecordDirectCall (MethodDefinition soure, MethodDefinition target)
+		{
+			// do nothing, as this recorder doesn't treat direct calls specially.
+		}
+
+		public void RecordVirtualCall (MethodDefinition soure, MethodDefinition target)
+		{
+			// do nothing, as this recorder doesn't treat virtual calls specially.
+		}
+
+		public void RecordOverride (MethodDefinition soure, MethodDefinition target)
+		{
+			// do nothing, as this recorder doesn't treat overrides specially.
 		}
 	}
 }

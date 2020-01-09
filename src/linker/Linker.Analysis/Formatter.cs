@@ -79,12 +79,10 @@ namespace Mono.Linker.Analysis
 
 		TextWriter textWriter;
 		ApiFilter apiFilter;
-		ICallGraph<MethodDefinition> callGraph;
+		CallGraph callGraph;
 		IntMapping<MethodDefinition> mapping;
 
 		bool json = false;
-
-		bool usingStringInput = true;
 
 		public Formatter (CallGraph callGraph,
 						 IntMapping<MethodDefinition> mapping,
@@ -153,14 +151,15 @@ namespace Mono.Linker.Analysis
 			var stacktrace = new List<string> ();
 			var output = new List<string> ();
 			var methods = new List<MethodDefinition> ();
-			MethodDefinition methodDef;
+			MethodDefinition methodDef, prevMethodDef;
 			string prefix = Prefix (i);
-			if (usingStringInput) {
+
 				methodDef = mapping.intToMethod [i];
 				// should never be null, because we already skip nulls when determining entry points.
 				// yet somehow we get null...
 				// TODO: investigate this.
 				// Debug.Assert(methodDef != null);
+
 				if (!reverse) {
 					if (methodDef == null) {
 						output.Add (prefix + "---------- (???)");
@@ -168,54 +167,47 @@ namespace Mono.Linker.Analysis
 						output.Add (prefix + "---------- (" + apiFilter.GetInterestingReason (methodDef).ToString () + ")");
 					}
 				}
-
 				methods.Add (methodDef);
 				output.Add (prefix + methodDef.ToString ());
 				stacktrace.Add (methodDef.ToString ());
-			} else {
-				// methodDef = intToMethodDef[i];
-				// if (!reverse) {
-				//     output.Add(prefix + "---------- (" + apiFilter.GetInterestingReason(methodDef).ToString() + ")");
-				// }
-				// methodString = FormatMethod(methodDef);
-				// output.Add(prefix + methodString);
-				// stacktrace.Add(methodString);
-			}
+
 			while (r.prev [i] != i) {
 				i = r.prev [i];
 				prefix = Prefix (i);
-				if (usingStringInput) {
+
+				prevMethodDef = methodDef;
 					methodDef = mapping.intToMethod [i];
 					// this may give back a null methoddef. not sure why exactly.
 					if (methodDef == null) {
 						// TODO: investigate. for now, don't use FormatMethod.
 						// Console.WriteLine("resolution failure!");
 					}
-					methods.Add (methodDef);
-					output.Add (prefix + methodDef.ToString ());
-					stacktrace.Add (methodDef.ToString ());
+
+				if (reverse) {
+					if (callGraph.constructorDependencies.Contains((prevMethodDef, methodDef))) {
+						// TODO: handle ctor dependencies that overlap with real calls
+						output.Add ("-- ctor dependency");
+					}
 				} else {
-					// methodDef = intToMethodDef[i];
-					// var method = methodDef;
-					// methodString = FormatMethod(method);
-					// output.Add(prefix + methodString);
-					// stacktrace.Add(methodString);
+					// TODO
 				}
+
+					output.Add (prefix + methodDef.ToString ());
+
+				methods.Add (methodDef);
+					stacktrace.Add (methodDef.ToString ());
+
 			}
 			if (reverse) {
 				prefix = Prefix (i);
-				if (usingStringInput) {
 					methodDef = mapping.intToMethod [i];
 					if (methodDef == null) {
 						output.Add (prefix + "---------- (???)");
 					} else {
 						output.Add (prefix + "---------- (" + apiFilter.GetInterestingReason (methodDef).ToString () + ")");
 					}
-				} else {
-					// methodDef = intToMethodDef[i];
-					// output.Add(prefix + "---------- (" + apiFilter.GetInterestingReason(methodDef).ToString() + ")");
-				}
 			}
+
 			Debug.Assert (i == r.source);
 			if (reverse) {
 				stacktrace.Reverse ();

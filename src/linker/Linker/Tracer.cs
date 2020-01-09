@@ -28,6 +28,7 @@
 
 using System;
 using System.Collections.Generic;
+using Mono.Cecil;
 
 namespace Mono.Linker
 {
@@ -110,6 +111,35 @@ namespace Mono.Linker
 					recorder.RecordDependency (source, target, marked);
 				}
 			}
+		}
+
+		public void RecordDirectCall (MethodDefinition source, MethodDefinition target)
+		{
+			if (IsRecordingEnabled ()) {
+				foreach (IDependencyRecorder recorder in recorders) {
+					recorder.RecordDirectCall (source, target);
+				}
+			}
+		}
+
+		public void RecordVirtualCall (MethodDefinition source, MethodDefinition target)
+		{
+			if (IsRecordingEnabled ()) {
+				foreach (IDependencyRecorder recorder in recorders) {
+					recorder.RecordVirtualCall (source, target);
+				}
+			}
+
+		}
+
+		public void RecordOverride (MethodDefinition source, MethodDefinition target)
+		{
+			if (IsRecordingEnabled ()) {
+				foreach (IDependencyRecorder recorder in recorders) {
+					recorder.RecordOverride (source, target);
+				}
+			}
+
 		}
 	}
 }

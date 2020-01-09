@@ -11,7 +11,7 @@ namespace Mono.Linker.Analysis
 		// interface implementation
 		public ICollection<MethodDefinition> Methods => methods;
 
-		public ICollection<(MethodDefinition, MethodDefinition)> Calls => callsOrDependencies;
+		public ICollection<(MethodDefinition, MethodDefinition)> Calls => edges;
 
 		public bool IsConstructorDependency(MethodDefinition caller, MethodDefinition callee) {
 			return constructorDependencies.Contains((caller, callee));
@@ -41,21 +41,31 @@ namespace Mono.Linker.Analysis
 		// currently only used when taking edges in as strings
 
 		HashSet<MethodDefinition> methods;
-		HashSet<(MethodDefinition, MethodDefinition)> calls;
-		HashSet<(MethodDefinition, MethodDefinition)> constructorDependencies;
-		HashSet<(MethodDefinition, MethodDefinition)> callsOrDependencies;
+		HashSet<(MethodDefinition, MethodDefinition)> edges;
+		public HashSet<(MethodDefinition, MethodDefinition)> constructorDependencies;
+		readonly HashSet<(MethodDefinition, MethodDefinition)> directCalls;
+		readonly HashSet<(MethodDefinition, MethodDefinition)> virtualCalls;
 
+		HashSet<MethodDefinition> virtualCallees;
+		
 		public CallGraph (
-			List<(MethodDefinition, MethodDefinition)> edges,
+			HashSet<(MethodDefinition, MethodDefinition)> directCalls,
+			HashSet<(MethodDefinition, MethodDefinition)> virtualCalls,
+			HashSet<(MethodDefinition, MethodDefinition)> overrides,
 			ApiFilter apiFilter)
 		{
 			this.apiFilter = apiFilter;
 			Initialize (edges);
 		}
 
-		public void Initialize (List<(MethodDefinition, MethodDefinition)> edges)
-		{
-			calls = edges.ToHashSet (); ;
+			this.directCalls = directCalls;
+			this.virtualCalls = virtualCalls.SelectMany(c => overrides.Where(o => o.Item1 == c.Item2).Select(o => (c.Item1, o.Item2))).ToHashSet();
+			virtualCallees = this.virtualCalls.Select(c => c.Item2).ToHashSet();
+
+			edges = new HashSet<(MethodDefinition, MethodDefinition)> (directCalls); // don't even include virtuals now.
+			edges.UnionWith(this.virtualCalls);
+			// TODO: what if called both directly and virtually? don't want to subtract those out.
+
 			methods = new HashSet<MethodDefinition> ();
 			foreach (var e in edges) {
 				var (from, to) = e;
@@ -64,13 +74,10 @@ namespace Mono.Linker.Analysis
 			}
 		}
 
-		HashSet<MethodDefinition> virtualCallees;
-		HashSet<(MethodDefinition, MethodDefinition)> virtualCalls;
 		public void RemoveVirtualCalls ()
 		{
-			virtualCalls = calls.Where(c => IsVirtual(c.Item1, c.Item2)).ToHashSet();
-			virtualCallees = virtualCalls.Select(c => c.Item2).ToHashSet();
-			calls.ExceptWith(virtualCalls);
+			// TODO: don't subtract out direct calls!
+			edges.ExceptWith(virtualCalls);
 		}
 
 		public void RemoveCalls (Dictionary<MethodDefinition, HashSet<MethodDefinition>> calleesToCallers) {
@@ -83,17 +90,13 @@ namespace Mono.Linker.Analysis
 
 		public void RemoveMethods (List<MethodDefinition> methods) {
 			// also remove all calls to/from this method.
-			calls.RemoveWhere(call =>
-				methods.Contains(call.Item1) || methods.Contains(call.Item2));
-			constructorDependencies.RemoveWhere(call =>
+			edges.RemoveWhere(call =>
 				methods.Contains(call.Item1) || methods.Contains(call.Item2));
 			this.methods.RemoveWhere(m => methods.Contains(m));
-			callsOrDependencies = new HashSet<(MethodDefinition, MethodDefinition)>(calls);
-			callsOrDependencies.UnionWith(constructorDependencies);
 		}
 
 		// This adds an edge from constructor to unsafe instance methods that are
-		// called virtually and only virtually.
+		// called virtually
 		public void AddConstructorEdges() {
 			if (constructorDependencies != null) {
 				throw new System.InvalidOperationException("constructor edges may only be added once!");
@@ -165,9 +168,8 @@ namespace Mono.Linker.Analysis
 					}
 				}
 			}
-			callsOrDependencies = new HashSet<(MethodDefinition, MethodDefinition)>(calls);
-			callsOrDependencies.UnionWith(constructorDependencies);
 
+			edges.UnionWith(constructorDependencies);
 		}
 	}
 }

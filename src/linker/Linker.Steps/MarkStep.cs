@@ -301,6 +301,7 @@ namespace Mono.Linker.Steps {
 			if (!isInstantiated && !@base.IsAbstract && _context.IsOptimizationEnabled (CodeOptimizations.OverrideRemoval))
 				return;
 
+			Tracer.RecordOverride (@base, method);
 			MarkMethod (method);
 			ProcessVirtualMethod (method);
 		}
@@ -1813,6 +1814,12 @@ namespace Mono.Linker.Steps {
 
 		protected virtual MethodDefinition MarkMethod (MethodReference reference)
 		{
+			return MarkMethod (reference, out MethodDefinition resolved);
+		}
+
+		private MethodDefinition MarkMethod (MethodReference reference, out MethodDefinition resolved)
+		{
+			resolved = null;
 			reference = GetOriginalMethod (reference);
 
 			if (reference.DeclaringType is ArrayType)
@@ -1826,6 +1833,7 @@ namespace Mono.Linker.Steps {
 //				return;
 
 			MethodDefinition method = ResolveMethodDefinition (reference);
+			resolved = method;
 
 			try {
 				if (method == null) {
@@ -1906,7 +1914,8 @@ namespace Mono.Linker.Steps {
 
 			if (method.HasOverrides) {
 				foreach (MethodReference ov in method.Overrides) {
-					MarkMethod (ov);
+					MarkMethod (ov, out MethodDefinition resolved);
+					Tracer.RecordOverride (method, resolved);
 					MarkExplicitInterfaceImplementation (method, ov);
 				}
 			}
@@ -2266,7 +2275,22 @@ namespace Mono.Linker.Steps {
 				MarkField ((FieldReference) instruction.Operand);
 				break;
 			case OperandType.InlineMethod:
-				MarkMethod ((MethodReference) instruction.Operand);
+				MarkMethod ((MethodReference) instruction.Operand, out MethodDefinition resolved);
+				switch (instruction.OpCode.Code) {
+				case Code.Jmp:
+				case Code.Call:
+				case Code.Newobj:
+					Tracer.RecordDirectCall (method, resolved);
+					break;
+				case Code.Callvirt:
+					Tracer.RecordVirtualCall (method, resolved);
+					break;
+				case Code.Ldftn:
+				case Code.Ldvirtftn:
+					break;
+				default:
+					throw new Exception ("unexpected opcode!");
+				}
 				break;
 			case OperandType.InlineTok:
 				object token = instruction.Operand;
