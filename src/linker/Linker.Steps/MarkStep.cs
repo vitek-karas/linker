@@ -2236,7 +2236,7 @@ namespace Mono.Linker.Steps {
 					MarkType (eh.CatchType);
 
 			foreach (Instruction instruction in body.Instructions)
-				MarkInstruction (instruction);
+				MarkInstruction (instruction, body.Method);
 
 			MarkInterfacesNeededByBodyStack (body);
 
@@ -2268,7 +2268,7 @@ namespace Mono.Linker.Steps {
 				MarkInterfaceImplementation (implementation);
 		}
 
-		protected virtual void MarkInstruction (Instruction instruction)
+		protected virtual void MarkInstruction (Instruction instruction, MethodDefinition method)
 		{
 			switch (instruction.OpCode.OperandType) {
 			case OperandType.InlineField:
