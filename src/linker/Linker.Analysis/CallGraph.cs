@@ -44,7 +44,8 @@ namespace Mono.Linker.Analysis
 		HashSet<(MethodDefinition, MethodDefinition)> edges;
 		public HashSet<(MethodDefinition, MethodDefinition)> constructorDependencies;
 		readonly HashSet<(MethodDefinition, MethodDefinition)> directCalls;
-		readonly HashSet<(MethodDefinition, MethodDefinition)> virtualCalls;
+		readonly HashSet<(MethodDefinition, MethodDefinition)> virtualCallsToNonVirtualMethods;
+		readonly HashSet<(MethodDefinition, MethodDefinition)> virtualCallsToVirtualMethods;
 
 		HashSet<MethodDefinition> virtualCallees;
 
@@ -55,15 +56,36 @@ namespace Mono.Linker.Analysis
 			ApiFilter apiFilter)
 		{
 			this.apiFilter = apiFilter;
-			Initialize (edges);
-		}
-
 			this.directCalls = directCalls;
-			this.virtualCalls = virtualCalls.SelectMany(c => overrides.Where(o => o.Item1 == c.Item2).Select(o => (c.Item1, o.Item2))).ToHashSet();
-			virtualCallees = this.virtualCalls.Select(c => c.Item2).ToHashSet();
+			this.virtualCallsToVirtualMethods = new HashSet<(MethodDefinition, MethodDefinition)>();
+			this.virtualCallsToNonVirtualMethods = new HashSet<(MethodDefinition, MethodDefinition)>();
+			this.constructorDependencies = new HashSet<(MethodDefinition, MethodDefinition)>();
+
+			// each virtual call should have at least one target.
+			foreach (var c in virtualCalls) {
+				var caller = c.Item1;
+				var callee = c.Item2;
+
+				if (!callee.IsVirtual) {
+					// C# compiler emits callvirt to non-virtual methods. we are not interested in these.
+					virtualCallsToNonVirtualMethods.Add((caller, callee));
+					continue;
+				}
+				if (!callee.DeclaringType.IsInterface) {
+					// virtual calls to an interface method can only go to overrides. (not taking into account default interface implementations yet)
+					this.virtualCallsToVirtualMethods.Add((caller, callee));
+		}
+				foreach (var target in overrides.Where(o => o.Item1 == callee).Select(o => o.Item2)) {
+					this.virtualCallsToVirtualMethods.Add((caller, target));
+				}
+			}
+
+			virtualCallees = this.virtualCallsToVirtualMethods.Select(c => c.Item2).ToHashSet();
 
 			edges = new HashSet<(MethodDefinition, MethodDefinition)> (directCalls); // don't even include virtuals now.
-			edges.UnionWith(this.virtualCalls);
+			edges.UnionWith(this.virtualCallsToNonVirtualMethods); // these are pretty much direct calls,
+			// where the C# compiler uses callvirt just for null-checking purposes.
+			edges.UnionWith(this.virtualCallsToVirtualMethods);
 			// TODO: what if called both directly and virtually? don't want to subtract those out.
 
 			methods = new HashSet<MethodDefinition> ();
@@ -77,13 +99,15 @@ namespace Mono.Linker.Analysis
 		public void RemoveVirtualCalls ()
 		{
 			// TODO: don't subtract out direct calls!
-			edges.ExceptWith(virtualCalls);
+			// this keeps virtual calls to non-virtual methods.
+			// later we might also want to keep around unambiguous virtual calls.
+			edges.ExceptWith(virtualCallsToVirtualMethods);
 		}
 
 		public void RemoveCalls (Dictionary<MethodDefinition, HashSet<MethodDefinition>> calleesToCallers) {
 			foreach (var (callee, callers) in calleesToCallers) {
 				foreach (var caller in callers) {
-					calls.Remove((caller, callee));
+					edges.Remove((caller, callee));
 				}
 			}
 		}
@@ -98,10 +122,10 @@ namespace Mono.Linker.Analysis
 		// This adds an edge from constructor to unsafe instance methods that are
 		// called virtually
 		public void AddConstructorEdges() {
-			if (constructorDependencies != null) {
+			if (constructorDependencies.Count != 0) {
 				throw new System.InvalidOperationException("constructor edges may only be added once!");
 			}
-			constructorDependencies = new HashSet<(MethodDefinition, MethodDefinition)>();
+
 			foreach (var method in methods) {
 				if (!IsInteresting(method))
 					continue;
@@ -146,7 +170,7 @@ namespace Mono.Linker.Analysis
 
 					// TODO: we get some that call self...
 					// probably inaccurate recording.
-					var virtualCallers = virtualCalls.Where(c => c.Item2 == method).Select(c => c.Item1);
+					var virtualCallers = virtualCallsToVirtualMethods.Where(c => c.Item2 == method).Select(c => c.Item1);
 					if (virtualCallers.Count() == 1) {
 						if (virtualCallers.Single() == method) {
 							// if the method's only caller is itself...

@@ -176,11 +176,16 @@ namespace Mono.Linker.Analysis
 			isAnnotatedSafeMethod = new bool [callGraph.Methods.Count];
 			bool[] isPublicOrVirtual = new bool [callGraph.Methods.Count];
 			bool[] isEntry = new bool [callGraph.Methods.Count];
+			bool[] isStaticCtor = new bool [callGraph.Methods.Count];
+			bool[] isEntryOrStaticCtor = new bool [callGraph.Methods.Count];
 			int [] [] safeEdges = new int [callGraph.Methods.Count] [];
 			for (int i = 0; i < intCallGraph.numMethods; i++) {
 				var cecilMethod = mapping.intToMethod [i];
 				if (cecilMethod == null) {
 					continue;
+				}
+				if (cecilMethod.IsConstructor && cecilMethod.IsStatic) {
+					isStaticCtor [i] = true;
 				}
 				if (intCallGraph.isInteresting [i]) {
 					numInterestingMethods++;
@@ -200,6 +205,9 @@ namespace Mono.Linker.Analysis
 				if (intCallGraph.isEntry [i]) {
 					isEntry [i] = true;
 				}
+				if (isEntry [i] || isStaticCtor [i]) {
+						isEntryOrStaticCtor [i] = true;
+					}
 				if (apiFilter.IsAnnotatedLinkerFriendlyApi (cecilMethod)) {
 					isAnnotatedSafeMethod [i] = true;
 				}
@@ -260,7 +268,7 @@ namespace Mono.Linker.Analysis
 			IntBFS.AllPairsBFS (
 				neighbors: intCallGraph.callers,                 // search bottom-up (callees to callers).
 				isSource: intCallGraph.isInteresting,            // look for a shortest path from each "interesting" method...
-				isDestination: isEntry,                          // ...to each "entry" method
+				isDestination: isEntryOrStaticCtor,                          // ...to each "entry" method
 				numMethods: intCallGraph.numMethods,
 				excludePathsToSources: true,                     // ...that don't go through any other "interesting" methods.
 				ignoreEdgesTo: isAnnotatedSafeMethod,            // ignore calls from annotated safe methods (edges to safe methods in the bottom-up case)
