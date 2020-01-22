@@ -6,10 +6,10 @@ namespace Mono.Linker.Steps
 {
 	public class AnalysisStep : BaseStep
 	{
-		private LinkContext context;
-		private CallgraphDependencyRecorder callgraphDependencyRecorder;
-		private AnalysisPatternRecorder patternRecorder;
-		private AnalysisEntryPointsStep entryPointsStep;
+		readonly LinkContext context;
+		readonly CallgraphDependencyRecorder callgraphDependencyRecorder;
+		readonly AnalysisReflectionPatternRecorder reflectionPatternRecorder;
+		readonly AnalysisEntryPointsStep entryPointsStep;
 
 		public AnalysisStep(LinkContext context, AnalysisEntryPointsStep entryPointsStep)
 		{
@@ -19,20 +19,20 @@ namespace Mono.Linker.Steps
 			callgraphDependencyRecorder = new CallgraphDependencyRecorder ();
 			context.Tracer.AddRecorder (callgraphDependencyRecorder);
 
-			patternRecorder = new AnalysisPatternRecorder ();
-			context.PatternRecorder = patternRecorder;
+			reflectionPatternRecorder = new AnalysisReflectionPatternRecorder ();
+			context.ReflectionPatternRecorder = reflectionPatternRecorder;
 		}
 
 		protected override void Process ()
 		{
-			var apiFilter = new ApiFilter (patternRecorder.UnanalyzedMethods, entryPointsStep.EntryPoints);
+			var apiFilter = new ApiFilter (reflectionPatternRecorder.UnanalyzedMethods, entryPointsStep.EntryPoints);
 			var cg = new CallGraph (callgraphDependencyRecorder.Dependencies, apiFilter);
 
 			string jsonFile = Path.Combine (context.OutputDirectory, "trimanalysis.json");
 			using (StreamWriter sw = new StreamWriter (jsonFile)) {
 				(IntCallGraph intCallGraph, IntMapping<MethodDefinition> mapping) = IntCallGraph.CreateFrom (cg);
 				var formatter = new Formatter (cg, mapping, json: true, sw);
-				var analyzer = new Analyzer (cg, intCallGraph, mapping, apiFilter, patternRecorder.ResolvedReflectionCalls, formatter, Grouping.Callee);
+				var analyzer = new Analyzer (cg, intCallGraph, mapping, apiFilter, reflectionPatternRecorder.ResolvedReflectionCalls, formatter, Grouping.Callee);
 				analyzer.Analyze ();
 			}
 		}
