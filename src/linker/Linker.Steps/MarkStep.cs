@@ -153,8 +153,10 @@ namespace Mono.Linker.Steps {
 		void InitializeMethods (Collection<MethodDefinition> methods)
 		{
 			foreach (MethodDefinition method in methods)
-				if (Annotations.IsMarked (method))
+				if (Annotations.IsMarked (method)) {
+					Tracer.RecordEntry (method);
 					EnqueueMethod (method);
+				}
 		}
 
 		void MarkEntireType (TypeDefinition type)
@@ -1133,8 +1135,13 @@ namespace Mono.Linker.Steps {
 
 			if (type.HasMethods) {
 				MarkMethodsIf (type.Methods, IsVirtualNeededByTypeDueToPreservedScope);
-				if (ShouldMarkTypeStaticConstructor (type))
+				if (ShouldMarkTypeStaticConstructor (type)) {
+					var cctors = type.Methods.Where(m => IsNonEmptyStaticConstructor(m));
+					foreach (var cctor in cctors) {
+						Tracer.RecordCctorDependency(type, cctor);
+					}
 					MarkStaticConstructor (type);
+				}
 
 				MarkMethodsIf (type.Methods, HasSerializationAttribute);
 			}
@@ -1917,6 +1924,7 @@ namespace Mono.Linker.Steps {
 				return;
 
 			Tracer.Push (method);
+			Tracer.RecordTypeDependency (method, method.DeclaringType);
 			MarkType (method.DeclaringType);
 			MarkCustomAttributes (method);
 			MarkSecurityDeclarations (method);
@@ -2261,10 +2269,26 @@ namespace Mono.Linker.Steps {
 				MarkInterfaceImplementation (implementation);
 		}
 
+		private void RecordDependencyForFieldAccess (MethodDefinition method, FieldReference fieldReference) {
+			var parent = fieldReference.DeclaringType.Resolve ();
+			if (parent == null)
+				return;
+
+			var cctor = parent.Methods.Where(m => IsNonEmptyStaticConstructor(m)).SingleOrDefault();
+			if (cctor != null) {
+				if (parent.IsBeforeFieldInit) {
+					Tracer.RecordCctorFieldAccessDependency (method, cctor);
+				} else {
+					Tracer.RecordTypeDependency (method, parent);
+				}
+			}
+		}
+
 		protected virtual void MarkInstruction (Instruction instruction, MethodDefinition method)
 		{
 			switch (instruction.OpCode.OperandType) {
 			case OperandType.InlineField:
+				RecordDependencyForFieldAccess (method, (FieldReference) instruction.Operand);
 				MarkField ((FieldReference) instruction.Operand);
 				break;
 			case OperandType.InlineMethod:
@@ -2287,12 +2311,15 @@ namespace Mono.Linker.Steps {
 				break;
 			case OperandType.InlineTok:
 				object token = instruction.Operand;
-				if (token is TypeReference)
+				if (token is TypeReference) {
 					MarkType ((TypeReference) token);
-				else if (token is MethodReference)
+				} else if (token is MethodReference) {
 					MarkMethod ((MethodReference) token);
-				else
+				} else {
+					var field = (FieldReference) token;
+					RecordDependencyForFieldAccess (method, (FieldReference) instruction.Operand);
 					MarkField ((FieldReference) token);
+				}
 				break;
 			case OperandType.InlineType:
 				MarkType ((TypeReference) instruction.Operand);
