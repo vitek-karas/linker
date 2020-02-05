@@ -43,7 +43,7 @@ namespace Mono.Linker.Steps
 
 			// 2. remove linkeranalyzed edges
 			// this could leave over interesting methods that had understood calls.
-			cg.RemoveCalls(patternRecorder.ResolvedReflectionCalls);
+			cg.RemoveCalls(reflectionPatternRecorder.ResolvedReflectionCalls);
 
 			// 3. add ctor edges (with special attribute)
 			cg.AddConstructorEdges();

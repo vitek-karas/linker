@@ -1878,7 +1878,7 @@ namespace Mono.Linker.Steps {
 //			if (IgnoreScope (reference.DeclaringType.Scope))
 //				return;
 
-			MethodDefinition method = ResolveMethodDefinition (reference);
+			MethodDefinition method = reference.Resolve ();
 			resolved = method;
 
 			try {

@@ -14,7 +14,7 @@ namespace Mono.Linker.Analysis
 		public ICollection<TypeDefinition> Types => types;
 
 		public ICollection<(IMemberDefinition, IMemberDefinition)> Edges => 
-			(ICollection<(IMemberDefinition, IMemberDefinition)>)edges.Select(e => ((IMemberDefinition)e.Item1, (IMemberDefinition)e.Item2));
+			(ICollection<(IMemberDefinition, IMemberDefinition)>)edges.Select(e => ((IMemberDefinition)e.Item1, (IMemberDefinition)e.Item2)).ToHashSet();
 
 		public bool IsConstructorDependency(MethodDefinition caller, MethodDefinition callee) {
 			return constructorDependencies.Contains((caller, callee));
