@@ -57,7 +57,7 @@ namespace Mono.Linker
 		protected readonly Dictionary<MethodDefinition, List<OverrideInformation>> override_methods = new Dictionary<MethodDefinition, List<OverrideInformation>> ();
 		protected readonly Dictionary<MethodDefinition, List<MethodDefinition>> base_methods = new Dictionary<MethodDefinition, List<MethodDefinition>> ();
 		protected readonly Dictionary<AssemblyDefinition, ISymbolReader> symbol_readers = new Dictionary<AssemblyDefinition, ISymbolReader> ();
-		readonly Dictionary<IMemberDefinition, LinkerAttributesInformation> linker_attributes = new Dictionary<IMemberDefinition, LinkerAttributesInformation> ();
+		readonly Dictionary<ICustomAttributeProvider, LinkerAttributesInformation> linker_attributes = new Dictionary<ICustomAttributeProvider, LinkerAttributesInformation> ();
 		protected readonly Dictionary<MethodDefinition, List<(TypeDefinition InstanceType, InterfaceImplementation ImplementationProvider)>> default_interface_implementations = new Dictionary<MethodDefinition, List<(TypeDefinition, InterfaceImplementation)>> ();
 
 		readonly Dictionary<object, Dictionary<IMetadataTokenProvider, object>> custom_annotations = new Dictionary<object, Dictionary<IMetadataTokenProvider, object>> ();
@@ -468,39 +468,44 @@ namespace Mono.Linker
 			return marked_types_with_cctor.Add (type);
 		}
 
-		public bool HasLinkerAttribute<T> (IMemberDefinition member) where T : Attribute
+		public bool HasLinkerAttribute<T> (ICustomAttributeProvider provider) where T : Attribute
 		{
 			// Avoid setting up and inserting LinkerAttributesInformation for members without attributes.
-			if (!context.CustomAttributes.HasAttributes (member))
+			if (!context.CustomAttributes.HasAttributes (provider))
 				return false;
 
-			if (!linker_attributes.TryGetValue (member, out var linkerAttributeInformation)) {
-				linkerAttributeInformation = new LinkerAttributesInformation (context, member);
-				linker_attributes.Add (member, linkerAttributeInformation);
+			if (!linker_attributes.TryGetValue (provider, out var linkerAttributeInformation)) {
+				linkerAttributeInformation = new LinkerAttributesInformation (context, provider);
+				linker_attributes.Add (provider, linkerAttributeInformation);
 			}
 
 			return linkerAttributeInformation.HasAttribute<T> ();
 		}
 
-		public IEnumerable<T> GetLinkerAttributes<T> (IMemberDefinition member) where T : Attribute
+		public IEnumerable<T> GetLinkerAttributes<T> (ICustomAttributeProvider provider) where T : Attribute
 		{
 			// Avoid setting up and inserting LinkerAttributesInformation for members without attributes.
-			if (!context.CustomAttributes.HasAttributes (member))
+			if (!context.CustomAttributes.HasAttributes (provider))
 				return Enumerable.Empty<T> ();
 
-			if (!linker_attributes.TryGetValue (member, out var linkerAttributeInformation)) {
-				linkerAttributeInformation = new LinkerAttributesInformation (context, member);
-				linker_attributes.Add (member, linkerAttributeInformation);
+			if (!linker_attributes.TryGetValue (provider, out var linkerAttributeInformation)) {
+				linkerAttributeInformation = new LinkerAttributesInformation (context, provider);
+				linker_attributes.Add (provider, linkerAttributeInformation);
 			}
 
 			return linkerAttributeInformation.GetAttributes<T> ();
 		}
 
-		public bool TryGetLinkerAttribute<T> (IMemberDefinition member, out T attribute) where T : Attribute
+		public bool TryGetLinkerAttribute<T> (ICustomAttributeProvider provider, out T attribute) where T : Attribute
 		{
-			var attributes = GetLinkerAttributes<T> (member);
+			var attributes = GetLinkerAttributes<T> (provider);
 			if (attributes.Count () > 1) {
-				context.LogWarning ($"Attribute '{typeof (T).FullName}' should only be used once on '{((member is MemberReference memberRef) ? memberRef.GetDisplayName () : member.FullName)}'.", 2027, member);
+				string locationName = provider switch {
+					MemberReference memberRef => memberRef.GetDisplayName (),
+					IMemberDefinition memberDefinition => memberDefinition.FullName,
+					_ => provider.ToString ()
+				};
+				context.LogWarning ($"Attribute '{typeof (T).FullName}' should only be used once on '{locationName}'.", 2027, provider as IMemberDefinition);
 			}
 
 			attribute = attributes.FirstOrDefault ();

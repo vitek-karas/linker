@@ -25,6 +25,8 @@ namespace Mono.Linker
 						attributeValue = ProcessRequiresUnreferencedCodeAttribute (context, provider, customAttribute);
 					else if (attributeType.IsTypeOf<DynamicDependencyAttribute> ())
 						attributeValue = DynamicDependency.ProcessAttribute (context, provider, customAttribute);
+					else if (attributeType.IsTypeOf<DynamicallyAccessedMembersAttribute> ())
+						attributeValue = ProcessDynamicallyAccessedMembersAttribute (context, provider, customAttribute);
 					AddAttribute (ref _linkerAttributes, attributeValue);
 				}
 			}
@@ -89,6 +91,26 @@ namespace Mono.Linker
 			context.LogWarning (
 				$"Attribute '{typeof (RequiresUnreferencedCodeAttribute).FullName}' doesn't have the required number of parameters specified",
 				2028, method);
+			return null;
+		}
+
+		static Attribute ProcessDynamicallyAccessedMembersAttribute (LinkContext context, ICustomAttributeProvider provider, CustomAttribute customAttribute)
+		{
+			if (customAttribute.ConstructorArguments.Count == 1) {
+				return new DynamicallyAccessedMembersAttribute ((DynamicallyAccessedMemberTypes) (int) customAttribute.ConstructorArguments[0].Value);
+			}
+
+			IMemberDefinition locationMember = provider switch {
+				ParameterDefinition parameter => parameter.Method as MethodDefinition,
+				MethodReturnType methodReturnType => methodReturnType.Method as MethodDefinition,
+				GenericParameter genericParameter => (IMemberDefinition)genericParameter.DeclaringMethod ?? (IMemberDefinition)genericParameter.DeclaringType,
+				_ => provider as IMemberDefinition
+			};
+
+			context.LogWarning (
+				$"Attribute 'System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute' doesn't have the required number of parameters specified",
+				2028, locationMember);
+
 			return null;
 		}
 	}

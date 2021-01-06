@@ -97,27 +97,12 @@ namespace Mono.Linker.Dataflow
 			return value;
 		}
 
-		static bool IsDynamicallyAccessedMembersAttribute (CustomAttribute attribute)
-		{
-			var attributeType = attribute.AttributeType;
-			return attributeType.Name == "DynamicallyAccessedMembersAttribute" && attributeType.Namespace == "System.Diagnostics.CodeAnalysis";
-		}
-
 		DynamicallyAccessedMemberTypes GetMemberTypesForDynamicallyAccessedMembersAttribute (ICustomAttributeProvider provider, IMemberDefinition locationMember = null)
 		{
-			if (!_context.CustomAttributes.HasCustomAttributes (provider))
+			if (!_context.Annotations.TryGetLinkerAttribute<DynamicallyAccessedMembersAttribute> (provider, out var dynamicallyAccessedMembersAttribute))
 				return DynamicallyAccessedMemberTypes.None;
-			foreach (var attribute in _context.CustomAttributes.GetCustomAttributes (provider)) {
-				if (!IsDynamicallyAccessedMembersAttribute (attribute))
-					continue;
-				if (attribute.ConstructorArguments.Count == 1)
-					return (DynamicallyAccessedMemberTypes) (int) attribute.ConstructorArguments[0].Value;
-				else
-					_context.LogWarning (
-						$"Attribute 'System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute' doesn't have the required number of parameters specified",
-						2028, locationMember ?? (provider as IMemberDefinition));
-			}
-			return DynamicallyAccessedMemberTypes.None;
+
+			return dynamicallyAccessedMembersAttribute.MemberTypes;
 		}
 
 		TypeAnnotations BuildTypeAnnotations (TypeDefinition type)
