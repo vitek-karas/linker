@@ -240,6 +240,9 @@ namespace Mono.Linker.Steps
 			foreach (var body in _unreachableBodies) {
 				Annotations.SetAction (body.Method, MethodAction.ConvertToThrow);
 			}
+
+			foreach (var o in operatorsMarked)
+				Console.WriteLine (o.GetDisplayName());
 		}
 
 		static bool TypeIsDynamicInterfaceCastableImplementation (TypeDefinition type)
@@ -1561,6 +1564,54 @@ namespace Mono.Linker.Steps
 			return MarkType (reference, reason, sourceLocationMember);
 		}
 
+		static readonly string[] operatorMethodNames = new string[] {
+			"op_Implicit",
+			"op_Explicit",
+			"op_False",
+			"op_True",
+			"op_Equality",
+			"op_Inequality",
+			"op_LessThan",
+			"op_LessThanOrEqual",
+			"op_GreaterThan",
+			"op_GreaterThanOrEqual",
+			"op_BitwiseAnd",
+			"op_BitwiseOr",
+			"op_Addition",
+			"op_Subtraction",
+			"op_Division",
+			"op_Modulus",
+			"op_Multiply",
+			"op_LeftShift",
+			"op_RightShift",
+			"op_ExclusiveOr",
+			"op_Exponent",
+			"op_Exponentiation",
+			"op_UnaryNegation",
+			"op_UnaryPlus",
+			"op_LogicalNot",
+			"op_OnesComplement",
+			"op_Increment",
+			"op_Decrement"
+		};
+
+		static HashSet<MethodDefinition> operatorsMarked = new HashSet<MethodDefinition> ();
+
+		void MarkOperators (TypeDefinition typeDef, IMemberDefinition sourceLocationMember)
+		{
+			if (!_context.TryGetCustomData ("ops", out string _))
+				return;
+
+			MarkMethodsIf (typeDef.Methods, m => {
+				if (m.IsStatic && operatorMethodNames.Contains(m.Name)) {
+					operatorsMarked.Add(m);
+					return true;
+				}
+
+				return false;
+			}, new DependencyInfo (DependencyKind.Custom, typeDef), sourceLocationMember);
+		}
+
 		/// <summary>
 		/// Marks the specified <paramref name="reference"/> as referenced.
 		/// </summary>
@@ -1607,6 +1658,8 @@ namespace Mono.Linker.Steps
 			// Treat cctors triggered by a called method specially and mark this case up-front.
 			if (type.HasMethods && ShouldMarkTypeStaticConstructor (type) && reason.Kind == DependencyKind.DeclaringTypeOfCalledMethod)
 				MarkStaticConstructor (type, new DependencyInfo (DependencyKind.TriggersCctorForCalledMethod, reason.Source), sourceLocationMember);
+
+			MarkOperators (type, sourceLocationMember);
 
 			if (_context.Annotations.HasLinkerAttribute<RemoveAttributeInstancesAttribute> (type)) {
 				// Don't warn about references from the removed attribute itself (for example the .ctor on the attribute
