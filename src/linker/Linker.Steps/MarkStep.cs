@@ -1099,8 +1099,8 @@ namespace Mono.Linker.Steps
 				return;
 			}
 
-			MarkCustomAttributeProperties (ca, type, source);
-			MarkCustomAttributeFields (ca, type, source);
+			MarkCustomAttributeProperties (ca, type);
+			MarkCustomAttributeFields (ca, type);
 		}
 
 		protected virtual bool ShouldMarkCustomAttribute (CustomAttribute ca, ICustomAttributeProvider provider)
@@ -1205,23 +1205,21 @@ namespace Mono.Linker.Steps
 			// Security attributes participate in inference logic without being marked.
 			Tracer.AddDirectDependency (sa, reason, marked: false);
 			MarkType (security_type, new DependencyInfo (DependencyKind.AttributeType, sa));
-			MarkCustomAttributeProperties (sa, type, sourceLocationMember);
-			MarkCustomAttributeFields (sa, type, sourceLocationMember);
+			MarkCustomAttributeProperties (sa, type);
+			MarkCustomAttributeFields (sa, type);
 		}
 
-		protected void MarkCustomAttributeProperties (ICustomAttribute ca, TypeDefinition attribute, IMemberDefinition sourceLocationMember)
+		protected void MarkCustomAttributeProperties (ICustomAttribute ca, TypeDefinition attribute)
 		{
 			if (!ca.HasProperties)
 				return;
 
 			foreach (var named_argument in ca.Properties)
-				MarkCustomAttributeProperty (named_argument, attribute, ca, new DependencyInfo (DependencyKind.AttributeProperty, ca), sourceLocationMember);
+				MarkCustomAttributeProperty (named_argument, attribute, ca, new DependencyInfo (DependencyKind.AttributeProperty, ca));
 		}
 
-		protected void MarkCustomAttributeProperty (CustomAttributeNamedArgument namedArgument, TypeDefinition attribute, ICustomAttribute ca, in DependencyInfo reason, IMemberDefinition sourceLocationMember)
+		protected void MarkCustomAttributeProperty (CustomAttributeNamedArgument namedArgument, TypeDefinition attribute, ICustomAttribute ca, in DependencyInfo reason)
 		{
-			using var localScope = _scopeStack.PushScope (new MessageOrigin (sourceLocationMember));
-
 			PropertyDefinition property = GetProperty (attribute, namedArgument.Name);
 			if (property != null)
 				MarkMethod (property.SetMethod, reason);
@@ -1247,19 +1245,17 @@ namespace Mono.Linker.Steps
 			return null;
 		}
 
-		protected void MarkCustomAttributeFields (ICustomAttribute ca, TypeDefinition attribute, IMemberDefinition sourceLocationMember)
+		protected void MarkCustomAttributeFields (ICustomAttribute ca, TypeDefinition attribute)
 		{
 			if (!ca.HasFields)
 				return;
 
 			foreach (var named_argument in ca.Fields)
-				MarkCustomAttributeField (named_argument, attribute, ca, sourceLocationMember);
+				MarkCustomAttributeField (named_argument, attribute, ca);
 		}
 
-		protected void MarkCustomAttributeField (CustomAttributeNamedArgument namedArgument, TypeDefinition attribute, ICustomAttribute ca, IMemberDefinition sourceLocationMember)
+		protected void MarkCustomAttributeField (CustomAttributeNamedArgument namedArgument, TypeDefinition attribute, ICustomAttribute ca)
 		{
-			using var localScope = _scopeStack.PushScope (new MessageOrigin (sourceLocationMember));
-
 			FieldDefinition field = GetField (attribute, namedArgument.Name);
 			if (field != null)
 				MarkField (field, new DependencyInfo (DependencyKind.CustomAttributeField, ca));
