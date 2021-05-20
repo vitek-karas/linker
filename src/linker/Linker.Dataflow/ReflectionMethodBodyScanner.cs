@@ -1745,7 +1745,7 @@ namespace Mono.Linker.Dataflow
 						reflectionContext.RecordHandledPattern ();
 					}
 
-					_markStep.CheckAndReportRequiresUnreferencedCode (calledMethodDefinition, new MessageOrigin (callingMethodDefinition, operation.Offset));
+					_markStep.CheckAndReportRequiresUnreferencedCode (calledMethodDefinition, reflectionContext.CurrentMessageOrigin);
 
 					// To get good reporting of errors we need to track the origin of the value for all method calls
 					// but except Newobj as those are special.
