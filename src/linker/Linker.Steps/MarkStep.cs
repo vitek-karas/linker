@@ -248,10 +248,12 @@ namespace Mono.Linker.Steps
 
 		bool ProcessInternalsVisibleAttributes ()
 		{
+			using var nullScope = _scopeStack.PushScope (new MessageOrigin (null));
+
 			bool marked_any = false;
 			foreach (var attr in _ivt_attributes) {
 				if (!Annotations.IsMarked (attr.Attribute) && IsInternalsVisibleAttributeAssemblyMarked (attr.Attribute)) {
-					MarkCustomAttribute (attr.Attribute, new DependencyInfo (DependencyKind.AssemblyOrModuleAttribute, attr.Provider), null);
+					MarkCustomAttribute (attr.Attribute, new DependencyInfo (DependencyKind.AssemblyOrModuleAttribute, attr.Provider));
 					marked_any = true;
 				}
 			}
@@ -794,7 +796,7 @@ namespace Mono.Linker.Steps
 					if (providerInLinkedAssembly && IsAttributeRemoved (ca, resolvedAttributeType))
 						continue;
 
-					MarkCustomAttribute (ca, reason, sourceLocationMember);
+					MarkCustomAttribute (ca, reason);
 					MarkSpecialCustomAttributeDependencies (ca, provider);
 				}
 			}
@@ -859,7 +861,7 @@ namespace Mono.Linker.Steps
 				// Record the custom attribute so that it has a reason, without actually marking it.
 				Tracer.AddDirectDependency (ca, reason, marked: false);
 			} else {
-				MarkCustomAttribute (ca, reason, sourceLocationMember);
+				MarkCustomAttribute (ca, reason);
 			}
 
 			return true;
@@ -1083,10 +1085,8 @@ namespace Mono.Linker.Steps
 			}
 		}
 
-		protected virtual void MarkCustomAttribute (CustomAttribute ca, in DependencyInfo reason, IMemberDefinition source)
+		protected virtual void MarkCustomAttribute (CustomAttribute ca, in DependencyInfo reason)
 		{
-			using var localScope = _scopeStack.PushScope (new MessageOrigin (source));
-
 			Annotations.Mark (ca, reason);
 			MarkMethod (ca.Constructor, new DependencyInfo (DependencyKind.AttributeConstructor, ca));
 
@@ -1446,7 +1446,7 @@ namespace Mono.Linker.Steps
 				}
 
 				markOccurred = true;
-				MarkCustomAttribute (customAttribute, new DependencyInfo (DependencyKind.AssemblyOrModuleAttribute, assemblyLevelAttribute.Provider), null);
+				MarkCustomAttribute (customAttribute, new DependencyInfo (DependencyKind.AssemblyOrModuleAttribute, assemblyLevelAttribute.Provider));
 
 				string attributeFullName = customAttribute.Constructor.DeclaringType.FullName;
 				switch (attributeFullName) {
@@ -1492,7 +1492,7 @@ namespace Mono.Linker.Steps
 
 				markOccurred = true;
 				using (_scopeStack.PushScope (origin)) {
-					MarkCustomAttribute (customAttribute, reason, _scopeStack.CurrentScope.MemberDefinition);
+					MarkCustomAttribute (customAttribute, reason);
 					MarkSpecialCustomAttributeDependencies (customAttribute, provider);
 				}
 			}
