@@ -2240,27 +2240,19 @@ namespace Mono.Linker.Dataflow
 
 		void MarkProperty (ref ReflectionPatternContext reflectionContext, PropertyDefinition property, DependencyKind dependencyKind = DependencyKind.AccessedViaReflection)
 		{
-			var source = reflectionContext.Source;
-			var dependencyInfo = new DependencyInfo (dependencyKind, source);
+			var origin = reflectionContext.CurrentMessageOrigin;
+			var dependencyInfo = new DependencyInfo (dependencyKind, reflectionContext.Source);
 			reflectionContext.RecordRecognizedPattern (property, () => {
-				// Marking the property itself actually doesn't keep it (it only marks its attributes and records the dependency), we have to mark the methods on it
-				_markStep.MarkProperty (property, dependencyInfo);
-				// We don't track PropertyInfo, so we can't tell if any accessor is needed by the app, so include them both.
-				// With better tracking it might be possible to be more precise here: mono/linker/issues/1948
-				_markStep.MarkMethodIfNotNull (property.GetMethod, dependencyInfo, source);
-				_markStep.MarkMethodIfNotNull (property.SetMethod, dependencyInfo, source);
-				_markStep.MarkMethodsIf (property.OtherMethods, m => true, dependencyInfo, source);
+				_markStep.MarkPropertyVisibleToReflection (property, dependencyInfo, origin);
 			});
 		}
 
 		void MarkEvent (ref ReflectionPatternContext reflectionContext, EventDefinition @event, DependencyKind dependencyKind = DependencyKind.AccessedViaReflection)
 		{
-			var source = reflectionContext.Source;
+			var origin = reflectionContext.CurrentMessageOrigin;
 			var dependencyInfo = new DependencyInfo (dependencyKind, reflectionContext.Source);
 			reflectionContext.RecordRecognizedPattern (@event, () => {
-				// MarkEvent actually marks the add/remove/invoke methods as well, so no need to mark those explicitly
-				_markStep.MarkEvent (@event, dependencyInfo);
-				_markStep.MarkMethodsIf (@event.OtherMethods, m => true, dependencyInfo, source);
+				_markStep.MarkEventVisibleToReflection (@event, dependencyInfo, origin);
 			});
 		}
 

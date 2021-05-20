@@ -935,14 +935,10 @@ namespace Mono.Linker.Steps
 					MarkField (field, reason);
 					break;
 				case PropertyDefinition property:
-					MarkProperty (property, reason);
-					MarkMethodIfNotNull (property.GetMethod, reason, _scopeStack.CurrentScope.MemberDefinition);
-					MarkMethodIfNotNull (property.SetMethod, reason, _scopeStack.CurrentScope.MemberDefinition);
-					MarkMethodsIf (property.OtherMethods, m => true, reason, _scopeStack.CurrentScope.MemberDefinition);
+					MarkPropertyVisibleToReflection (property, reason);
 					break;
 				case EventDefinition @event:
-					MarkEvent (@event, reason);
-					MarkMethodsIf (@event.OtherMethods, m => true, reason, _scopeStack.CurrentScope.MemberDefinition);
+					MarkEventVisibleToReflection (@event, reason);
 					break;
 				case InterfaceImplementation interfaceType:
 					MarkInterfaceImplementation (interfaceType, _scopeStack.CurrentScope.MemberDefinition, reason);
@@ -1611,12 +1607,14 @@ namespace Mono.Linker.Steps
 			if (_context.GetTargetRuntimeVersion () > TargetRuntimeVersion.NET5)
 				return;
 
+			using var localScope = _scopeStack.PushScope (new MessageOrigin (type));
+
 			if (type.IsSerializable ()) {
 				MarkDefaultConstructor (type, new DependencyInfo (DependencyKind.SerializationMethodForType, type), type);
-				MarkMethodsIf (type.Methods, IsSpecialSerializationConstructor, new DependencyInfo (DependencyKind.SerializationMethodForType, type), type);
+				MarkMethodsIf (type.Methods, IsSpecialSerializationConstructor, new DependencyInfo (DependencyKind.SerializationMethodForType, type));
 			}
 
-			MarkMethodsIf (type.Methods, HasOnSerializeOrDeserializeAttribute, new DependencyInfo (DependencyKind.SerializationMethodForType, type), type);
+			MarkMethodsIf (type.Methods, HasOnSerializeOrDeserializeAttribute, new DependencyInfo (DependencyKind.SerializationMethodForType, type));
 		}
 
 		protected internal virtual TypeDefinition MarkTypeVisibleToReflection (TypeReference type, TypeDefinition definition, in DependencyInfo reason, MessageOrigin? origin = null)
@@ -1639,6 +1637,28 @@ namespace Mono.Linker.Steps
 		{
 			MarkIndirectlyCalledMethod (method, reason, origin);
 			Annotations.MarkReflectionUsed (method);
+		}
+
+		internal void MarkPropertyVisibleToReflection (PropertyDefinition property, in DependencyInfo reason, MessageOrigin? origin = null)
+		{
+			using var localScope = origin.HasValue ? _scopeStack.PushScope (origin.Value) : null;
+
+			// Marking the property itself actually doesn't keep it (it only marks its attributes and records the dependency), we have to mark the methods on it
+			MarkProperty (property, reason);
+			// We don't track PropertyInfo, so we can't tell if any accessor is needed by the app, so include them both.
+			// With better tracking it might be possible to be more precise here: mono/linker/issues/1948
+			MarkMethodIfNotNull (property.GetMethod, reason, _scopeStack.CurrentScope.MemberDefinition);
+			MarkMethodIfNotNull (property.SetMethod, reason, _scopeStack.CurrentScope.MemberDefinition);
+			MarkMethodsIf (property.OtherMethods, m => true, reason);
+		}
+
+		internal void MarkEventVisibleToReflection (EventDefinition @event, in DependencyInfo reason, MessageOrigin? origin = null)
+		{
+			using var localScope = origin.HasValue ? _scopeStack.PushScope (origin.Value) : null;
+
+			// MarkEvent actually marks the add/remove/invoke methods as well, so no need to mark those explicitly
+			MarkEvent (@event, reason);
+			MarkMethodsIf (@event.OtherMethods, m => true, reason);
 		}
 
 		/// <summary>
@@ -1771,7 +1791,7 @@ namespace Mono.Linker.Steps
 
 			if (type.HasMethods) {
 				// For virtuals that must be preserved, blame the declaring type.
-				MarkMethodsIf (type.Methods, IsVirtualNeededByTypeDueToPreservedScope, new DependencyInfo (DependencyKind.VirtualNeededDueToPreservedScope, type), type);
+				MarkMethodsIf (type.Methods, IsVirtualNeededByTypeDueToPreservedScope, new DependencyInfo (DependencyKind.VirtualNeededDueToPreservedScope, type));
 				if (ShouldMarkTypeStaticConstructor (type) && reason.Kind != DependencyKind.TriggersCctorForCalledMethod) {
 					using (_scopeStack.PopToParent ())
 						MarkStaticConstructor (type, new DependencyInfo (DependencyKind.CctorForType, type), _scopeStack.CurrentScope.MemberDefinition);
@@ -1868,11 +1888,11 @@ namespace Mono.Linker.Steps
 					MarkTypeWithDebuggerTypeProxyAttribute (type, attribute);
 					break;
 				case "EventDataAttribute" when attrType.Namespace == "System.Diagnostics.Tracing":
-					if (MarkMethodsIf (type.Methods, MethodDefinitionExtensions.IsPublicInstancePropertyMethod, new DependencyInfo (DependencyKind.ReferencedBySpecialAttribute, type), type))
+					if (MarkMethodsIf (type.Methods, MethodDefinitionExtensions.IsPublicInstancePropertyMethod, new DependencyInfo (DependencyKind.ReferencedBySpecialAttribute, type)))
 						Tracer.AddDirectDependency (attribute, new DependencyInfo (DependencyKind.CustomAttribute, type), marked: false);
 					break;
 				case "TypeDescriptionProviderAttribute" when attrType.Namespace == "System.ComponentModel":
-					MarkTypeConverterLikeDependency (attribute, l => l.IsDefaultConstructor (), type, type);
+					MarkTypeConverterLikeDependency (attribute, l => l.IsDefaultConstructor (), type);
 					break;
 				}
 			}
@@ -1888,8 +1908,7 @@ namespace Mono.Linker.Steps
 				MarkTypeConverterLikeDependency (ca, l =>
 					l.IsDefaultConstructor () ||
 					l.Parameters.Count == 1 && l.Parameters[0].ParameterType.IsTypeOf ("System", "Type"),
-					provider,
-					_scopeStack.CurrentScope.MemberDefinition);
+					provider);
 				return true;
 			}
 
@@ -1918,7 +1937,7 @@ namespace Mono.Linker.Steps
 			}
 		}
 
-		protected virtual void MarkTypeConverterLikeDependency (CustomAttribute attribute, Func<MethodDefinition, bool> predicate, ICustomAttributeProvider provider, IMemberDefinition sourceLocationMember)
+		protected virtual void MarkTypeConverterLikeDependency (CustomAttribute attribute, Func<MethodDefinition, bool> predicate, ICustomAttributeProvider provider)
 		{
 			var args = attribute.ConstructorArguments;
 			if (args.Count < 1)
@@ -1927,7 +1946,7 @@ namespace Mono.Linker.Steps
 			TypeDefinition typeDefinition = null;
 			switch (attribute.ConstructorArguments[0].Value) {
 			case string s:
-				typeDefinition = _context.TypeNameResolver.ResolveTypeName (s, sourceLocationMember, out AssemblyDefinition assemblyDefinition)?.Resolve ();
+				typeDefinition = _context.TypeNameResolver.ResolveTypeName (s, _scopeStack.CurrentScope.MemberDefinition, out AssemblyDefinition assemblyDefinition)?.Resolve ();
 				if (typeDefinition != null)
 					MarkingHelpers.MarkMatchingExportedType (typeDefinition, assemblyDefinition, new DependencyInfo (DependencyKind.CustomAttribute, provider));
 
@@ -1941,7 +1960,7 @@ namespace Mono.Linker.Steps
 				return;
 
 			Tracer.AddDirectDependency (attribute, new DependencyInfo (DependencyKind.CustomAttribute, provider), marked: false);
-			MarkMethodsIf (typeDefinition.Methods, predicate, new DependencyInfo (DependencyKind.ReferencedBySpecialAttribute, attribute), sourceLocationMember);
+			MarkMethodsIf (typeDefinition.Methods, predicate, new DependencyInfo (DependencyKind.ReferencedBySpecialAttribute, attribute));
 		}
 
 		void MarkTypeWithDebuggerDisplayAttribute (TypeDefinition type, CustomAttribute attribute)
@@ -2218,10 +2237,8 @@ namespace Mono.Linker.Steps
 				parameters[1].ParameterType.Name == "StreamingContext";
 		}
 
-		protected internal bool MarkMethodsIf (Collection<MethodDefinition> methods, Func<MethodDefinition, bool> predicate, in DependencyInfo reason, IMemberDefinition sourceLocationMember)
+		protected internal bool MarkMethodsIf (Collection<MethodDefinition> methods, Func<MethodDefinition, bool> predicate, in DependencyInfo reason)
 		{
-			using var localScope = _scopeStack.PushScope (new MessageOrigin (sourceLocationMember));
-
 			bool marked = false;
 			foreach (MethodDefinition method in methods) {
 				if (predicate (method)) {
@@ -2283,7 +2300,7 @@ namespace Mono.Linker.Steps
 						return;
 					}
 
-					MarkMethodsIf (tdef.Methods, m => !m.IsStatic, reason, _scopeStack.CurrentScope.MemberDefinition);
+					MarkMethodsIf (tdef.Methods, m => !m.IsStatic, reason);
 
 					MarkInterfaceImplementation (iface, type);
 					return;
@@ -2350,7 +2367,7 @@ namespace Mono.Linker.Steps
 
 		protected virtual void MarkMulticastDelegate (TypeDefinition type)
 		{
-			MarkMethodsIf (type.Methods, m => m.Name == ".ctor" || m.Name == "Invoke", new DependencyInfo (DependencyKind.MethodForSpecialType, type), type);
+			MarkMethodsIf (type.Methods, m => m.Name == ".ctor" || m.Name == "Invoke", new DependencyInfo (DependencyKind.MethodForSpecialType, type));
 		}
 
 		protected (TypeReference, DependencyInfo) GetOriginalType (TypeReference type, DependencyInfo reason, IMemberDefinition sourceLocationMember)
