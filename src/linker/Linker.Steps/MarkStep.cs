@@ -49,7 +49,7 @@ namespace Mono.Linker.Steps
 		protected List<MethodDefinition> _virtual_methods;
 		protected Queue<AttributeProviderPair> _assemblyLevelAttributes;
 		readonly List<AttributeProviderPair> _ivt_attributes;
-		protected Queue<(AttributeProviderPair, DependencyInfo, IMemberDefinition)> _lateMarkedAttributes;
+		protected Queue<(AttributeProviderPair, DependencyInfo, MessageOrigin)> _lateMarkedAttributes;
 		protected List<TypeDefinition> _typesWithInterfaces;
 		protected HashSet<AssemblyDefinition> _dynamicInterfaceCastableImplementationTypesDiscovered;
 		protected List<TypeDefinition> _dynamicInterfaceCastableImplementationTypes;
@@ -185,7 +185,7 @@ namespace Mono.Linker.Steps
 			_virtual_methods = new List<MethodDefinition> ();
 			_assemblyLevelAttributes = new Queue<AttributeProviderPair> ();
 			_ivt_attributes = new List<AttributeProviderPair> ();
-			_lateMarkedAttributes = new Queue<(AttributeProviderPair, DependencyInfo, IMemberDefinition)> ();
+			_lateMarkedAttributes = new Queue<(AttributeProviderPair, DependencyInfo, MessageOrigin)> ();
 			_typesWithInterfaces = new List<TypeDefinition> ();
 			_dynamicInterfaceCastableImplementationTypesDiscovered = new HashSet<AssemblyDefinition> ();
 			_dynamicInterfaceCastableImplementationTypes = new List<TypeDefinition> ();
@@ -306,7 +306,7 @@ namespace Mono.Linker.Steps
 
 		internal void MarkEntireType (TypeDefinition type, bool includeBaseTypes, bool includeInterfaceTypes, in DependencyInfo reason, MessageOrigin? origin = null)
 		{
-			using (origin.HasValue ? _scopeStack.PushScope (origin.Value) : null)
+			using (_scopeStack.PushScope (origin.HasValue ? origin.Value : new MessageOrigin (type)))
 				MarkEntireTypeInternal (type, includeBaseTypes, includeInterfaceTypes, reason);
 		}
 
@@ -768,6 +768,8 @@ namespace Mono.Linker.Steps
 
 		void MarkCustomAttributes (ICustomAttributeProvider provider, in DependencyInfo reason, IMemberDefinition sourceLocationMember)
 		{
+			using var localScope = _scopeStack.PushScope (new MessageOrigin (sourceLocationMember));
+
 			if (provider.HasCustomAttributes) {
 				bool providerInLinkedAssembly = Annotations.GetAction (CustomAttributeSource.GetAssemblyFromCustomAttributeProvider (provider)) == AssemblyAction.Link;
 				bool markOnUse = _context.KeepUsedAttributeTypesOnly && providerInLinkedAssembly;
@@ -777,7 +779,7 @@ namespace Mono.Linker.Steps
 						continue;
 
 					if (markOnUse) {
-						_lateMarkedAttributes.Enqueue ((new AttributeProviderPair (ca, provider), reason, sourceLocationMember));
+						_lateMarkedAttributes.Enqueue ((new AttributeProviderPair (ca, provider), reason, _scopeStack.CurrentScope));
 						continue;
 					}
 
@@ -793,7 +795,7 @@ namespace Mono.Linker.Steps
 						continue;
 
 					MarkCustomAttribute (ca, reason, sourceLocationMember);
-					MarkSpecialCustomAttributeDependencies (ca, provider, sourceLocationMember);
+					MarkSpecialCustomAttributeDependencies (ca, provider);
 				}
 			}
 
@@ -1424,6 +1426,8 @@ namespace Mono.Linker.Steps
 			var skippedItems = new List<AttributeProviderPair> ();
 			var markOccurred = false;
 
+			// We don't have a good message origin for assembly level attributes - so set it to null
+			using var assemblyScope = _scopeStack.PushScope (new MessageOrigin (null));
 			while (_assemblyLevelAttributes.Count != 0) {
 				var assemblyLevelAttribute = _assemblyLevelAttributes.Dequeue ();
 				var customAttribute = assemblyLevelAttribute.Attribute;
@@ -1471,11 +1475,11 @@ namespace Mono.Linker.Steps
 			if (startingQueueCount == 0)
 				return false;
 
-			var skippedItems = new List<(AttributeProviderPair, DependencyInfo, IMemberDefinition)> ();
+			var skippedItems = new List<(AttributeProviderPair, DependencyInfo, MessageOrigin)> ();
 			var markOccurred = false;
 
 			while (_lateMarkedAttributes.Count != 0) {
-				var (attributeProviderPair, reason, sourceLocationMember) = _lateMarkedAttributes.Dequeue ();
+				var (attributeProviderPair, reason, origin) = _lateMarkedAttributes.Dequeue ();
 				var customAttribute = attributeProviderPair.Attribute;
 				var provider = attributeProviderPair.Provider;
 
@@ -1485,13 +1489,15 @@ namespace Mono.Linker.Steps
 				}
 
 				if (!ShouldMarkCustomAttribute (customAttribute, provider)) {
-					skippedItems.Add ((attributeProviderPair, reason, sourceLocationMember));
+					skippedItems.Add ((attributeProviderPair, reason, origin));
 					continue;
 				}
 
 				markOccurred = true;
-				MarkCustomAttribute (customAttribute, reason, sourceLocationMember);
-				MarkSpecialCustomAttributeDependencies (customAttribute, provider, sourceLocationMember);
+				using (_scopeStack.PushScope (origin)) {
+					MarkCustomAttribute (customAttribute, reason, _scopeStack.CurrentScope.MemberDefinition);
+					MarkSpecialCustomAttributeDependencies (customAttribute, provider);
+				}
 			}
 
 			// requeue the items we skipped in case we need to make another pass
@@ -1702,7 +1708,7 @@ namespace Mono.Linker.Steps
 
 			MarkModule (type.Scope as ModuleDefinition, new DependencyInfo (DependencyKind.ScopeOfType, type));
 
-			using var localScope = _scopeStack.PushScope (new MessageOrigin (type));
+			using var typeScope = _scopeStack.PushScope (new MessageOrigin (type));
 
 			foreach (Action<TypeDefinition> handleMarkType in _markContext.MarkTypeActions)
 				handleMarkType (type);
@@ -1878,7 +1884,7 @@ namespace Mono.Linker.Steps
 		//
 		// Used for known framework attributes which can be applied to any element
 		//
-		bool MarkSpecialCustomAttributeDependencies (CustomAttribute ca, ICustomAttributeProvider provider, IMemberDefinition sourceLocationMember)
+		bool MarkSpecialCustomAttributeDependencies (CustomAttribute ca, ICustomAttributeProvider provider)
 		{
 			var dt = ca.Constructor.DeclaringType;
 			if (dt.Name == "TypeConverterAttribute" && dt.Namespace == "System.ComponentModel") {
@@ -1886,7 +1892,7 @@ namespace Mono.Linker.Steps
 					l.IsDefaultConstructor () ||
 					l.Parameters.Count == 1 && l.Parameters[0].ParameterType.IsTypeOf ("System", "Type"),
 					provider,
-					sourceLocationMember);
+					_scopeStack.CurrentScope.MemberDefinition);
 				return true;
 			}
 
@@ -1944,8 +1950,6 @@ namespace Mono.Linker.Steps
 		void MarkTypeWithDebuggerDisplayAttribute (TypeDefinition type, CustomAttribute attribute)
 		{
 			if (_context.KeepMembersForDebugger) {
-
-				using var localScope = _scopeStack.PushScope (new MessageOrigin (type));
 
 				// Members referenced by the DebuggerDisplayAttribute are kept even if the attribute may not be.
 				// Record a logical dependency on the attribute so that we can blame it for the kept members below.
@@ -2027,9 +2031,6 @@ namespace Mono.Linker.Steps
 				if (proxyTypeReference == null) {
 					return;
 				}
-
-
-				using var localScope = _scopeStack.PushScope (new MessageOrigin (type));
 
 				Tracer.AddDirectDependency (attribute, new DependencyInfo (DependencyKind.CustomAttribute, type), marked: false);
 				MarkType (proxyTypeReference, new DependencyInfo (DependencyKind.ReferencedBySpecialAttribute, attribute));
