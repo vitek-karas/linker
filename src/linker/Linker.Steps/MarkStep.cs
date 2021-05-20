@@ -345,7 +345,7 @@ namespace Mono.Linker.Steps
 				}
 			}
 
-			MarkGenericParameterProvider (type, _scopeStack.CurrentScope.MemberDefinition);
+			MarkGenericParameterProvider (type);
 
 			if (type.HasFields) {
 				foreach (FieldDefinition field in type.Fields) {
@@ -1134,9 +1134,9 @@ namespace Mono.Linker.Steps
 			return true;
 		}
 
-		protected internal void MarkStaticConstructor (TypeDefinition type, in DependencyInfo reason, IMemberDefinition sourceLocationMember)
+		protected internal void MarkStaticConstructor (TypeDefinition type, in DependencyInfo reason)
 		{
-			if (MarkMethodIf (type.Methods, IsNonEmptyStaticConstructor, reason, sourceLocationMember) != null)
+			if (MarkMethodIf (type.Methods, IsNonEmptyStaticConstructor, reason) != null)
 				Annotations.SetPreservedStaticCtor (type);
 		}
 
@@ -1572,7 +1572,7 @@ namespace Mono.Linker.Steps
 					DependencyKind.FieldAccess => new DependencyInfo (DependencyKind.TriggersCctorThroughFieldAccess, reason.Source),
 					_ => new DependencyInfo (DependencyKind.CctorForField, field)
 				};
-				MarkStaticConstructor (parent, cctorReason, field);
+				MarkStaticConstructor (parent, cctorReason);
 			}
 
 			if (Annotations.HasSubstitutedInit (field)) {
@@ -1607,10 +1607,8 @@ namespace Mono.Linker.Steps
 			if (_context.GetTargetRuntimeVersion () > TargetRuntimeVersion.NET5)
 				return;
 
-			using var localScope = _scopeStack.PushScope (new MessageOrigin (type));
-
 			if (type.IsSerializable ()) {
-				MarkDefaultConstructor (type, new DependencyInfo (DependencyKind.SerializationMethodForType, type), type);
+				MarkDefaultConstructor (type, new DependencyInfo (DependencyKind.SerializationMethodForType, type));
 				MarkMethodsIf (type.Methods, IsSpecialSerializationConstructor, new DependencyInfo (DependencyKind.SerializationMethodForType, type));
 			}
 
@@ -1661,6 +1659,13 @@ namespace Mono.Linker.Steps
 			MarkMethodsIf (@event.OtherMethods, m => true, reason);
 		}
 
+		internal void MarkStaticConstructorVisibleToReflection (TypeDefinition type, in DependencyInfo reason, MessageOrigin? origin = null)
+		{
+			using var localScope = origin.HasValue ? _scopeStack.PushScope (origin.Value) : null;
+
+			MarkStaticConstructor (type, reason);
+		}
+
 		/// <summary>
 		/// Marks the specified <paramref name="reference"/> as referenced.
 		/// </summary>
@@ -1703,7 +1708,7 @@ namespace Mono.Linker.Steps
 
 			// Treat cctors triggered by a called method specially and mark this case up-front.
 			if (type.HasMethods && ShouldMarkTypeStaticConstructor (type) && reason.Kind == DependencyKind.DeclaringTypeOfCalledMethod)
-				MarkStaticConstructor (type, new DependencyInfo (DependencyKind.TriggersCctorForCalledMethod, reason.Source), _scopeStack.CurrentScope.MemberDefinition);
+				MarkStaticConstructor (type, new DependencyInfo (DependencyKind.TriggersCctorForCalledMethod, reason.Source));
 
 			if (_context.Annotations.HasLinkerAttribute<RemoveAttributeInstancesAttribute> (type)) {
 				// Don't warn about references from the removed attribute itself (for example the .ctor on the attribute
@@ -1747,7 +1752,7 @@ namespace Mono.Linker.Steps
 			}
 
 			if (type.IsClass && type.BaseType == null && type.Name == "Object" && ShouldMarkSystemObjectFinalize)
-				MarkMethodIf (type.Methods, m => m.Name == "Finalize", new DependencyInfo (DependencyKind.MethodForSpecialType, type), type);
+				MarkMethodIf (type.Methods, m => m.Name == "Finalize", new DependencyInfo (DependencyKind.MethodForSpecialType, type));
 
 			MarkSerializable (type);
 
@@ -1759,7 +1764,7 @@ namespace Mono.Linker.Steps
 			// This marks properties for [EventData] types as well as other attribute dependencies.
 			MarkTypeSpecialCustomAttributes (type);
 
-			MarkGenericParameterProvider (type, type);
+			MarkGenericParameterProvider (type);
 
 			// There are a number of markings we can defer until later when we know it's possible a reference type could be instantiated
 			// For example, if no instance of a type exist, then we don't need to mark the interfaces on that type
@@ -1794,7 +1799,7 @@ namespace Mono.Linker.Steps
 				MarkMethodsIf (type.Methods, IsVirtualNeededByTypeDueToPreservedScope, new DependencyInfo (DependencyKind.VirtualNeededDueToPreservedScope, type));
 				if (ShouldMarkTypeStaticConstructor (type) && reason.Kind != DependencyKind.TriggersCctorForCalledMethod) {
 					using (_scopeStack.PopToParent ())
-						MarkStaticConstructor (type, new DependencyInfo (DependencyKind.CctorForType, type), _scopeStack.CurrentScope.MemberDefinition);
+						MarkStaticConstructor (type, new DependencyInfo (DependencyKind.CctorForType, type));
 				}
 			}
 
@@ -2150,19 +2155,17 @@ namespace Mono.Linker.Steps
 			}
 		}
 
-		void MarkGenericParameterProvider (IGenericParameterProvider provider, IMemberDefinition sourceLocationMember)
+		void MarkGenericParameterProvider (IGenericParameterProvider provider)
 		{
 			if (!provider.HasGenericParameters)
 				return;
 
 			foreach (GenericParameter parameter in provider.GenericParameters)
-				MarkGenericParameter (parameter, sourceLocationMember);
+				MarkGenericParameter (parameter);
 		}
 
-		void MarkGenericParameter (GenericParameter parameter, IMemberDefinition sourceLocationMember)
+		void MarkGenericParameter (GenericParameter parameter)
 		{
-			using var localScope = _scopeStack.PushScope (new MessageOrigin (sourceLocationMember));
-
 			MarkCustomAttributes (parameter, new DependencyInfo (DependencyKind.GenericParameterCustomAttribute, parameter.Owner));
 			if (!parameter.HasConstraints)
 				return;
@@ -2249,10 +2252,8 @@ namespace Mono.Linker.Steps
 			return marked;
 		}
 
-		protected MethodDefinition MarkMethodIf (Collection<MethodDefinition> methods, Func<MethodDefinition, bool> predicate, in DependencyInfo reason, IMemberDefinition sourceLocationMember)
+		protected MethodDefinition MarkMethodIf (Collection<MethodDefinition> methods, Func<MethodDefinition, bool> predicate, in DependencyInfo reason)
 		{
-			using var localScope = _scopeStack.PushScope (new MessageOrigin (sourceLocationMember));
-
 			foreach (MethodDefinition method in methods) {
 				if (predicate (method)) {
 					return MarkMethod (method, reason);
@@ -2262,12 +2263,12 @@ namespace Mono.Linker.Steps
 			return null;
 		}
 
-		protected bool MarkDefaultConstructor (TypeDefinition type, in DependencyInfo reason, IMemberDefinition sourceLocationMember)
+		protected bool MarkDefaultConstructor (TypeDefinition type, in DependencyInfo reason)
 		{
 			if (type?.HasMethods != true)
 				return false;
 
-			return MarkMethodIf (type.Methods, MethodDefinitionExtensions.IsDefaultConstructor, reason, sourceLocationMember) != null;
+			return MarkMethodIf (type.Methods, MethodDefinitionExtensions.IsDefaultConstructor, reason) != null;
 		}
 
 		void MarkCustomMarshalerGetInstance (TypeDefinition type, in DependencyInfo reason)
@@ -2277,7 +2278,7 @@ namespace Mono.Linker.Steps
 
 			MarkMethodIf (type.Methods, m =>
 				m.Name == "GetInstance" && m.IsStatic && m.Parameters.Count == 1 && m.Parameters[0].ParameterType.MetadataType == MetadataType.String,
-				reason, _scopeStack.CurrentScope.MemberDefinition);
+				reason);
 		}
 
 		void MarkICustomMarshalerMethods (TypeDefinition type, in DependencyInfo reason)
@@ -2451,7 +2452,7 @@ namespace Mono.Linker.Steps
 				Annotations.MarkRelevantToVariantCasting (argumentTypeDef);
 
 				if (parameter.HasDefaultConstructorConstraint)
-					MarkDefaultConstructor (argumentTypeDef, new DependencyInfo (DependencyKind.DefaultCtorForNewConstrainedGenericArgument, instance), sourceLocationMember);
+					MarkDefaultConstructor (argumentTypeDef, new DependencyInfo (DependencyKind.DefaultCtorForNewConstrainedGenericArgument, instance));
 			}
 		}
 
@@ -2802,7 +2803,7 @@ namespace Mono.Linker.Steps
 			MarkCustomAttributes (method, new DependencyInfo (DependencyKind.CustomAttribute, method));
 			MarkSecurityDeclarations (method, new DependencyInfo (DependencyKind.CustomAttribute, method), method);
 
-			MarkGenericParameterProvider (method, method);
+			MarkGenericParameterProvider (method);
 
 			if (method.IsInstanceConstructor ()) {
 				MarkRequirementsForInstantiatedTypes (method.DeclaringType);
@@ -2860,7 +2861,8 @@ namespace Mono.Linker.Steps
 
 				if (methodPair != null) {
 					TypeDefinition declaringType = method.DeclaringType;
-					MarkMethodIf (declaringType.Methods, m => m.Name == methodPair, new DependencyInfo (DependencyKind.MethodForSpecialType, declaringType), declaringType);
+					using (_scopeStack.PushScope (new MessageOrigin (declaringType)))
+						MarkMethodIf (declaringType.Methods, m => m.Name == methodPair, new DependencyInfo (DependencyKind.MethodForSpecialType, declaringType));
 				}
 			}
 
@@ -2948,14 +2950,14 @@ namespace Mono.Linker.Steps
 					return;
 
 				var baseType = _context.ResolveTypeDefinition (method.DeclaringType.BaseType);
-				if (!MarkDefaultConstructor (baseType, new DependencyInfo (DependencyKind.BaseDefaultCtorForStubbedMethod, method), method))
+				if (!MarkDefaultConstructor (baseType, new DependencyInfo (DependencyKind.BaseDefaultCtorForStubbedMethod, method)))
 					throw new LinkerFatalErrorException (MessageContainer.CreateErrorMessage ($"Cannot stub constructor on '{method.DeclaringType}' when base type does not have default constructor",
-						1006, origin: new MessageOrigin (method)));
+						1006, origin: _scopeStack.CurrentScope));
 
 				break;
 
 			case MethodAction.ConvertToThrow:
-				MarkAndCacheConvertToThrowExceptionCtor (new DependencyInfo (DependencyKind.UnreachableBodyRequirement, method), method);
+				MarkAndCacheConvertToThrowExceptionCtor (new DependencyInfo (DependencyKind.UnreachableBodyRequirement, method), _scopeStack.CurrentScope.MemberDefinition);
 				break;
 			}
 		}
@@ -2973,7 +2975,7 @@ namespace Mono.Linker.Steps
 
 			MarkType (nse, reason);
 
-			var nseCtor = MarkMethodIf (nse.Methods, KnownMembers.IsNotSupportedExceptionCtorString, reason, sourceLocationMember);
+			var nseCtor = MarkMethodIf (nse.Methods, KnownMembers.IsNotSupportedExceptionCtorString, reason);
 			_context.MarkedKnownMembers.NotSupportedExceptionCtorString = nseCtor ??
 				throw new LinkerFatalErrorException (MessageContainer.CreateErrorMessage ($"Could not find constructor on '{nse.GetDisplayName ()}'", 1008));
 
@@ -2983,7 +2985,7 @@ namespace Mono.Linker.Steps
 
 			MarkType (objectType, reason);
 
-			var objectCtor = MarkMethodIf (objectType.Methods, MethodDefinitionExtensions.IsDefaultConstructor, reason, sourceLocationMember);
+			var objectCtor = MarkMethodIf (objectType.Methods, MethodDefinitionExtensions.IsDefaultConstructor, reason);
 			_context.MarkedKnownMembers.ObjectCtor = objectCtor ??
 				throw new LinkerFatalErrorException (MessageContainer.CreateErrorMessage ($"Could not find constructor on '{objectType.GetDisplayName ()}'", 1008));
 		}
@@ -2997,12 +2999,13 @@ namespace Mono.Linker.Steps
 			if (disablePrivateReflection == null)
 				throw new LinkerFatalErrorException (MessageContainer.CreateErrorMessage ("Missing predefined 'System.Runtime.CompilerServices.DisablePrivateReflectionAttribute' type", 1007));
 
-			using (_scopeStack.PushScope (new MessageOrigin (null)))
+			using (_scopeStack.PushScope (new MessageOrigin (null))) {
 				MarkType (disablePrivateReflection, DependencyInfo.DisablePrivateReflectionRequirement);
 
-			var ctor = MarkMethodIf (disablePrivateReflection.Methods, MethodDefinitionExtensions.IsDefaultConstructor, new DependencyInfo (DependencyKind.DisablePrivateReflectionRequirement, disablePrivateReflection), disablePrivateReflection);
-			_context.MarkedKnownMembers.DisablePrivateReflectionAttributeCtor = ctor ??
-				throw new LinkerFatalErrorException (MessageContainer.CreateErrorMessage ($"Could not find constructor on '{disablePrivateReflection.GetDisplayName ()}'", 1010));
+				var ctor = MarkMethodIf (disablePrivateReflection.Methods, MethodDefinitionExtensions.IsDefaultConstructor, new DependencyInfo (DependencyKind.DisablePrivateReflectionRequirement, disablePrivateReflection));
+				_context.MarkedKnownMembers.DisablePrivateReflectionAttributeCtor = ctor ??
+					throw new LinkerFatalErrorException (MessageContainer.CreateErrorMessage ($"Could not find constructor on '{disablePrivateReflection.GetDisplayName ()}'", 1010));
+			}
 
 			return true;
 		}
@@ -3046,7 +3049,7 @@ namespace Mono.Linker.Steps
 			if (returnTypeDefinition != null) {
 				if (!returnTypeDefinition.IsImport) {
 					// What we keep here is correct most of the time, but not every time. Fine for now.
-					MarkDefaultConstructor (returnTypeDefinition, new DependencyInfo (DependencyKind.InteropMethodDependency, method), method);
+					MarkDefaultConstructor (returnTypeDefinition, new DependencyInfo (DependencyKind.InteropMethodDependency, method));
 					MarkFields (returnTypeDefinition, includeStaticFields, new DependencyInfo (DependencyKind.InteropMethodDependency, method));
 				}
 
@@ -3080,7 +3083,7 @@ namespace Mono.Linker.Steps
 						// What we keep here is correct most of the time, but not every time. Fine for now.
 						MarkFields (paramTypeDefinition, includeStaticFields, new DependencyInfo (DependencyKind.InteropMethodDependency, method));
 						if (pd.ParameterType.IsByReference) {
-							MarkDefaultConstructor (paramTypeDefinition, new DependencyInfo (DependencyKind.InteropMethodDependency, method), method);
+							MarkDefaultConstructor (paramTypeDefinition, new DependencyInfo (DependencyKind.InteropMethodDependency, method));
 						}
 					}
 
