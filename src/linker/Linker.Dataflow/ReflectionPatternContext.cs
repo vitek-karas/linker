@@ -95,6 +95,8 @@ namespace Mono.Linker.Dataflow
 				_context.ReflectionPatternRecorder.UnrecognizedReflectionAccessPattern (Source, Instruction, MemberWithRequirements, message, messageCode);
 		}
 
+		public MessageOrigin CurrentMessageOrigin { get => new MessageOrigin (Source, Instruction?.Offset); }
+
 		public void Dispose ()
 		{
 #if DEBUG
