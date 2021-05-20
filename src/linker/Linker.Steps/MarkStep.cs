@@ -1090,7 +1090,7 @@ namespace Mono.Linker.Steps
 			Annotations.Mark (ca, reason);
 			MarkMethod (ca.Constructor, new DependencyInfo (DependencyKind.AttributeConstructor, ca));
 
-			MarkCustomAttributeArguments (source, ca);
+			MarkCustomAttributeArguments (ca);
 
 			TypeReference constructor_type = ca.Constructor.DeclaringType;
 			TypeDefinition type = _context.ResolveTypeDefinition (constructor_type);
@@ -1226,11 +1226,11 @@ namespace Mono.Linker.Steps
 			if (property != null)
 				MarkMethod (property.SetMethod, reason);
 
-			MarkCustomAttributeArgument (namedArgument.Argument, ca, sourceLocationMember);
+			MarkCustomAttributeArgument (namedArgument.Argument, ca);
 
 			if (property != null && _context.Annotations.FlowAnnotations.RequiresDataFlowAnalysis (property.SetMethod)) {
 				var scanner = new ReflectionMethodBodyScanner (_context, this);
-				scanner.ProcessAttributeDataflow (sourceLocationMember, property.SetMethod, new List<CustomAttributeArgument> { namedArgument.Argument });
+				scanner.ProcessAttributeDataflow (_scopeStack.CurrentScope.MemberDefinition, property.SetMethod, new List<CustomAttributeArgument> { namedArgument.Argument });
 			}
 		}
 
@@ -1258,15 +1258,17 @@ namespace Mono.Linker.Steps
 
 		protected void MarkCustomAttributeField (CustomAttributeNamedArgument namedArgument, TypeDefinition attribute, ICustomAttribute ca, IMemberDefinition sourceLocationMember)
 		{
+			using var localScope = _scopeStack.PushScope (new MessageOrigin (sourceLocationMember));
+
 			FieldDefinition field = GetField (attribute, namedArgument.Name);
 			if (field != null)
 				MarkField (field, new DependencyInfo (DependencyKind.CustomAttributeField, ca));
 
-			MarkCustomAttributeArgument (namedArgument.Argument, ca, sourceLocationMember);
+			MarkCustomAttributeArgument (namedArgument.Argument, ca);
 
 			if (field != null && _context.Annotations.FlowAnnotations.RequiresDataFlowAnalysis (field)) {
 				var scanner = new ReflectionMethodBodyScanner (_context, this);
-				scanner.ProcessAttributeDataflow (sourceLocationMember, field, namedArgument.Argument);
+				scanner.ProcessAttributeDataflow (_scopeStack.CurrentScope.MemberDefinition, field, namedArgument.Argument);
 			}
 		}
 
@@ -1296,24 +1298,23 @@ namespace Mono.Linker.Steps
 			return null;
 		}
 
-		void MarkCustomAttributeArguments (IMemberDefinition source, CustomAttribute ca)
+		void MarkCustomAttributeArguments (CustomAttribute ca)
 		{
 			if (!ca.HasConstructorArguments)
 				return;
 
 			foreach (var argument in ca.ConstructorArguments)
-				MarkCustomAttributeArgument (argument, ca, source);
+				MarkCustomAttributeArgument (argument, ca);
 
 			var resolvedConstructor = _context.TryResolveMethodDefinition (ca.Constructor);
 			if (resolvedConstructor != null && _context.Annotations.FlowAnnotations.RequiresDataFlowAnalysis (resolvedConstructor)) {
 				var scanner = new ReflectionMethodBodyScanner (_context, this);
-				scanner.ProcessAttributeDataflow (source, resolvedConstructor, ca.ConstructorArguments);
+				scanner.ProcessAttributeDataflow (_scopeStack.CurrentScope.MemberDefinition, resolvedConstructor, ca.ConstructorArguments);
 			}
 		}
 
-		void MarkCustomAttributeArgument (CustomAttributeArgument argument, ICustomAttribute ca, IMemberDefinition sourceLocationMember)
+		void MarkCustomAttributeArgument (CustomAttributeArgument argument, ICustomAttribute ca)
 		{
-			using var localScope = _scopeStack.PushScope (new MessageOrigin (sourceLocationMember));
 			var at = argument.Type;
 
 			if (at.IsArray) {
@@ -1326,7 +1327,7 @@ namespace Mono.Linker.Steps
 				// Array arguments are modeled as a CustomAttributeArgument [], and will mark the
 				// Type once for each element in the array.
 				foreach (var caa in (CustomAttributeArgument[]) argument.Value)
-					MarkCustomAttributeArgument (caa, ca, sourceLocationMember);
+					MarkCustomAttributeArgument (caa, ca);
 
 				return;
 			}
@@ -1341,7 +1342,7 @@ namespace Mono.Linker.Steps
 				case "Object":
 					var boxed_value = (CustomAttributeArgument) argument.Value;
 					MarkType (boxed_value.Type, new DependencyInfo (DependencyKind.CustomAttributeArgumentType, ca));
-					MarkCustomAttributeArgument (boxed_value, ca, sourceLocationMember);
+					MarkCustomAttributeArgument (boxed_value, ca);
 					return;
 				}
 			}
