@@ -70,6 +70,7 @@ namespace Mono.Linker
 
 		readonly AnnotationStore _annotations;
 		readonly CustomAttributeSource _customAttributes;
+		readonly CompilerGeneratedState _compilerGeneratedState;
 		readonly List<MessageContainer> _cachedWarningMessageContainers;
 		readonly ILogger _logger;
 
@@ -77,13 +78,11 @@ namespace Mono.Linker
 			get { return _pipeline; }
 		}
 
-		public CustomAttributeSource CustomAttributes {
-			get { return _customAttributes; }
-		}
+		public CustomAttributeSource CustomAttributes { get => _customAttributes; }
 
-		public AnnotationStore Annotations {
-			get { return _annotations; }
-		}
+		public CompilerGeneratedState CompilerGeneratedState { get => _compilerGeneratedState; }
+
+		public AnnotationStore Annotations { get => _annotations; }
 
 		public bool DeterministicOutput { get; set; }
 
