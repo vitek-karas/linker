@@ -935,7 +935,7 @@ namespace Mono.Linker.Steps
 					MarkEventVisibleToReflection (@event, reason);
 					break;
 				case InterfaceImplementation interfaceType:
-					MarkInterfaceImplementation (interfaceType, _scopeStack.CurrentScope, reason);
+					MarkInterfaceImplementation (interfaceType, null, reason);
 					break;
 				case null:
 					MarkEntireType (typeDefinition, includeBaseTypes: true, includeInterfaceTypes: true, reason);
@@ -1492,7 +1492,7 @@ namespace Mono.Linker.Steps
 			return markOccurred;
 		}
 
-		protected internal void MarkField (FieldReference reference, DependencyInfo reason)
+		protected void MarkField (FieldReference reference, DependencyInfo reason)
 		{
 			if (reference.DeclaringType is GenericInstanceType) {
 				Debug.Assert (reason.Kind == DependencyKind.FieldAccess || reason.Kind == DependencyKind.Ldtoken);
@@ -1606,10 +1606,8 @@ namespace Mono.Linker.Steps
 			MarkMethodsIf (type.Methods, HasOnSerializeOrDeserializeAttribute, new DependencyInfo (DependencyKind.SerializationMethodForType, type));
 		}
 
-		protected internal virtual TypeDefinition MarkTypeVisibleToReflection (TypeReference type, TypeDefinition definition, in DependencyInfo reason, MessageOrigin? origin = null)
+		protected internal virtual TypeDefinition MarkTypeVisibleToReflection (TypeReference type, TypeDefinition definition, in DependencyInfo reason)
 		{
-			using var localScope = origin.HasValue ? _scopeStack.PushScope (origin.Value) : null;
-
 			// If a type is visible to reflection, we need to stop doing optimization that could cause observable difference
 			// in reflection APIs. This includes APIs like MakeGenericType (where variant castability of the produced type
 			// could be incorrect) or IsAssignableFrom (where assignability of unconstructed types might change).
@@ -1622,16 +1620,19 @@ namespace Mono.Linker.Steps
 			return MarkType (type, reason);
 		}
 
-		internal void MarkMethodVisibleToReflection (MethodDefinition method, in DependencyInfo reason, in MessageOrigin origin)
+		internal void MarkMethodVisibleToReflection (MethodDefinition method, in DependencyInfo reason)
 		{
-			MarkIndirectlyCalledMethod (method, reason, origin);
+			MarkIndirectlyCalledMethod (method, reason);
 			Annotations.MarkReflectionUsed (method);
 		}
 
-		internal void MarkPropertyVisibleToReflection (PropertyDefinition property, in DependencyInfo reason, MessageOrigin? origin = null)
+		internal void MarkFieldVisibleToReflection (FieldDefinition field, in DependencyInfo reason)
 		{
-			using var localScope = origin.HasValue ? _scopeStack.PushScope (origin.Value) : null;
+			MarkField (field, reason);
+		}
 
+		internal void MarkPropertyVisibleToReflection (PropertyDefinition property, in DependencyInfo reason)
+		{
 			// Marking the property itself actually doesn't keep it (it only marks its attributes and records the dependency), we have to mark the methods on it
 			MarkProperty (property, reason);
 			// We don't track PropertyInfo, so we can't tell if any accessor is needed by the app, so include them both.
@@ -1641,19 +1642,15 @@ namespace Mono.Linker.Steps
 			MarkMethodsIf (property.OtherMethods, m => true, reason);
 		}
 
-		internal void MarkEventVisibleToReflection (EventDefinition @event, in DependencyInfo reason, MessageOrigin? origin = null)
+		internal void MarkEventVisibleToReflection (EventDefinition @event, in DependencyInfo reason)
 		{
-			using var localScope = origin.HasValue ? _scopeStack.PushScope (origin.Value) : null;
-
 			// MarkEvent actually marks the add/remove/invoke methods as well, so no need to mark those explicitly
 			MarkEvent (@event, reason);
 			MarkMethodsIf (@event.OtherMethods, m => true, reason);
 		}
 
-		internal void MarkStaticConstructorVisibleToReflection (TypeDefinition type, in DependencyInfo reason, MessageOrigin? origin = null)
+		internal void MarkStaticConstructorVisibleToReflection (TypeDefinition type, in DependencyInfo reason)
 		{
-			using var localScope = origin.HasValue ? _scopeStack.PushScope (origin.Value) : null;
-
 			MarkStaticConstructor (type, reason);
 		}
 
@@ -2625,9 +2622,9 @@ namespace Mono.Linker.Steps
 				MarkMethod (method, reason);
 		}
 
-		protected internal void MarkIndirectlyCalledMethod (MethodDefinition method, in DependencyInfo reason, MessageOrigin? origin = null)
+		protected internal void MarkIndirectlyCalledMethod (MethodDefinition method, in DependencyInfo reason)
 		{
-			MarkMethod (method, reason, origin);
+			MarkMethod (method, reason);
 			Annotations.MarkIndirectlyCalledMethod (method);
 		}
 
@@ -2696,15 +2693,17 @@ namespace Mono.Linker.Steps
 				return;
 			}
 
-			CheckAndReportRequiresUnreferencedCode (method, _scopeStack.CurrentScope);
+			CheckAndReportRequiresUnreferencedCode (method);
 		}
 
-		internal void CheckAndReportRequiresUnreferencedCode (MethodDefinition method, in MessageOrigin origin)
+		internal void CheckAndReportRequiresUnreferencedCode (MethodDefinition method)
 		{
+			var currentScope = _scopeStack.CurrentScope;
+
 			// If the caller of a method is already marked with `RequiresUnreferencedCodeAttribute` a new warning should not
 			// be produced for the callee.
-			if (origin.MemberDefinition != null &&
-				Annotations.HasLinkerAttribute<RequiresUnreferencedCodeAttribute> (origin.MemberDefinition))
+			if (currentScope.MemberDefinition != null &&
+				Annotations.HasLinkerAttribute<RequiresUnreferencedCodeAttribute> (currentScope.MemberDefinition))
 				return;
 
 			if (Annotations.TryGetLinkerAttribute (method, out RequiresUnreferencedCodeAttribute requiresUnreferencedCode)) {
@@ -2715,7 +2714,7 @@ namespace Mono.Linker.Steps
 				if (!string.IsNullOrEmpty (requiresUnreferencedCode.Url))
 					message += " " + requiresUnreferencedCode.Url;
 
-				_context.LogWarning (message, 2026, origin, MessageSubCategory.TrimAnalysis);
+				_context.LogWarning (message, 2026, currentScope, MessageSubCategory.TrimAnalysis);
 			}
 		}
 
@@ -3350,18 +3349,18 @@ namespace Mono.Linker.Steps
 			return IsFullyPreserved (type);
 		}
 
-		protected internal virtual void MarkInterfaceImplementation (InterfaceImplementation iface, in MessageOrigin origin, DependencyInfo? reason = null)
+		protected internal virtual void MarkInterfaceImplementation (InterfaceImplementation iface, MessageOrigin? origin = null, DependencyInfo? reason = null)
 		{
 			if (Annotations.IsMarked (iface))
 				return;
 
-			using var localScope = _scopeStack.PushScope (origin);
+			using var localScope = origin.HasValue ? _scopeStack.PushScope (origin.Value) : null;
 
 			// Blame the type that has the interfaceimpl, expecting the type itself to get marked for other reasons.
 			MarkCustomAttributes (iface, new DependencyInfo (DependencyKind.CustomAttribute, iface));
 			// Blame the interface type on the interfaceimpl itself.
 			MarkType (iface.InterfaceType, reason ?? new DependencyInfo (DependencyKind.InterfaceImplementationInterfaceType, iface));
-			Annotations.MarkProcessed (iface, reason ?? new DependencyInfo (DependencyKind.InterfaceImplementationOnType, origin.MemberDefinition));
+			Annotations.MarkProcessed (iface, reason ?? new DependencyInfo (DependencyKind.InterfaceImplementationOnType, _scopeStack.CurrentScope.MemberDefinition));
 		}
 
 		//

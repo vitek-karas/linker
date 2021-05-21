@@ -209,7 +209,6 @@ namespace Mono.Linker
 			_actions = new Dictionary<string, AssemblyAction> ();
 			_parameters = new Dictionary<string, string> (StringComparer.Ordinal);
 			_customAttributes = new CustomAttributeSource (this);
-			_compilerGeneratedState = new CompilerGeneratedState (this);
 			_cachedWarningMessageContainers = new List<MessageContainer> ();
 			FeatureSettings = new Dictionary<string, bool> (StringComparer.Ordinal);
 
