@@ -8,9 +8,21 @@ using Mono.Cecil;
 
 namespace Mono.Linker.Steps
 {
-	class MarkScopeStack
+	public class MarkScopeStack
 	{
-		readonly Stack<MessageOrigin> _scopeStack;
+		readonly Stack<Scope> _scopeStack;
+
+		public readonly struct Scope
+		{
+			public readonly MessageOrigin Origin;
+			public readonly IMemberDefinition UserCodeLocation;
+
+			public Scope(in MessageOrigin origin, IMemberDefinition userCodeLocation)
+			{
+				Origin = origin;
+				UserCodeLocation = userCodeLocation;
+			}
+		}
 
 		readonly struct LocalScope : IDisposable
 		{
@@ -21,43 +33,52 @@ namespace Mono.Linker.Steps
 			{
 				_origin = origin;
 				_scopeStack = scopeStack;
-				_scopeStack.Push (origin);
+
+				_scopeStack.Push (new Scope(origin, origin.MemberDefinition));
+			}
+
+			public LocalScope(in Scope scope, MarkScopeStack scopeStack)
+			{
+				_origin = scope.Origin;
+				_scopeStack = scopeStack;
+
+				_scopeStack.Push (scope);
 			}
 
 			public void Dispose()
 			{
-				MessageOrigin childOrigin = _scopeStack.Pop ();
+				Scope scope = _scopeStack.Pop ();
 
-				if (_origin.MemberDefinition != childOrigin.MemberDefinition)
-					throw new InternalErrorException ($"Scope stack imbalance - expected to pop '{_origin}' but instead popped '{childOrigin}'.");
+				if (_origin.MemberDefinition != scope.Origin.MemberDefinition)
+					throw new InternalErrorException ($"Scope stack imbalance - expected to pop '{_origin}' but instead popped '{scope.Origin}'.");
 			}
 		}
 
 		readonly struct ParentScope : IDisposable
 		{
-			readonly MessageOrigin _parentOrigin;
-			readonly MessageOrigin _childOrigin;
+			readonly Scope _parentScope;
+			readonly Scope _childScope;
 			readonly MarkScopeStack _scopeStack;
 
 			public ParentScope(MarkScopeStack scopeStack)
 			{
 				_scopeStack = scopeStack;
-				_childOrigin = _scopeStack.Pop ();
-				_parentOrigin = _scopeStack.CurrentScope;
+				_childScope = _scopeStack.Pop ();
+				_parentScope = _scopeStack.CurrentScope;
 			}
 
 			public void Dispose()
 			{
-				if (_parentOrigin.MemberDefinition != _scopeStack.CurrentScope.MemberDefinition)
-					throw new InternalErrorException ($"Scope stack imbalance - expected top of stack to be '{_parentOrigin}' but instead found '{_scopeStack.CurrentScope}'.");
+				if (_parentScope.Origin.MemberDefinition != _scopeStack.CurrentScope.Origin.MemberDefinition)
+					throw new InternalErrorException ($"Scope stack imbalance - expected top of stack to be '{_parentScope.Origin}' but instead found '{_scopeStack.CurrentScope.Origin}'.");
 
-				_scopeStack.Push (_childOrigin);
+				_scopeStack.Push (_childScope);
 			}
 		}
 
 		public MarkScopeStack ()
 		{
-			_scopeStack = new Stack<MessageOrigin> ();
+			_scopeStack = new Stack<Scope> ();
 		}
 
 		public IDisposable PushScope (in MessageOrigin origin)
@@ -65,12 +86,17 @@ namespace Mono.Linker.Steps
 			return new LocalScope (origin, this);
 		}
 
+		public IDisposable PushScope (in Scope scope)
+		{
+			return new LocalScope (scope, this);
+		}
+
 		public IDisposable PopToParent ()
 		{
 			return new ParentScope (this);
 		}
 
-		public MessageOrigin CurrentScope {
+		public Scope CurrentScope {
 			get {
 				if (!_scopeStack.TryPeek (out var result))
 					throw new InternalErrorException ($"Scope stack imbalance - expected scope but instead the stack is empty.");
@@ -81,19 +107,19 @@ namespace Mono.Linker.Steps
 
 		public void UpdateCurrentScopeInstructionOffset (int offset)
 		{
-			if (CurrentScope.MemberDefinition is not MethodDefinition)
+			if (CurrentScope.Origin.MemberDefinition is not MethodDefinition)
 				throw new InternalErrorException ($"Trying to update instruction offset of scope stack which is not a method. Current stack scope is '{CurrentScope}'.");
 
-			var origin = _scopeStack.Pop ();
-			_scopeStack.Push (new MessageOrigin(origin.MemberDefinition, offset));
+			var scope = _scopeStack.Pop ();
+			_scopeStack.Push (new Scope(new MessageOrigin(scope.Origin.MemberDefinition, offset), scope.UserCodeLocation));
 		}
 
-		void Push (in MessageOrigin origin)
+		void Push (in Scope scope)
 		{
-			_scopeStack.Push (origin);
+			_scopeStack.Push (scope);
 		}
 
-		MessageOrigin Pop ()
+		Scope Pop ()
 		{
 			if (!_scopeStack.TryPop (out var result))
 				throw new InternalErrorException ($"Scope stack imbalance - trying to pop empty stack.");

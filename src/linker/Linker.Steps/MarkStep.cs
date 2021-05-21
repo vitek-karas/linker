@@ -49,7 +49,7 @@ namespace Mono.Linker.Steps
 		protected List<MethodDefinition> _virtual_methods;
 		protected Queue<AttributeProviderPair> _assemblyLevelAttributes;
 		readonly List<AttributeProviderPair> _ivt_attributes;
-		protected Queue<(AttributeProviderPair, DependencyInfo, MessageOrigin)> _lateMarkedAttributes;
+		protected Queue<(AttributeProviderPair, DependencyInfo, MarkScopeStack.Scope)> _lateMarkedAttributes;
 		protected List<TypeDefinition> _typesWithInterfaces;
 		protected HashSet<AssemblyDefinition> _dynamicInterfaceCastableImplementationTypesDiscovered;
 		protected List<TypeDefinition> _dynamicInterfaceCastableImplementationTypes;
@@ -60,7 +60,7 @@ namespace Mono.Linker.Steps
 		MarkStepContext _markContext;
 		readonly HashSet<TypeDefinition> _entireTypesMarked;
 		DynamicallyAccessedMembersTypeHierarchy _dynamicallyAccessedMembersTypeHierarchy;
-		readonly MarkScopeStack _scopeStack;
+		MarkScopeStack _scopeStack;
 
 		internal DynamicallyAccessedMembersTypeHierarchy DynamicallyAccessedMembersTypeHierarchy {
 			get => _dynamicallyAccessedMembersTypeHierarchy;
@@ -185,14 +185,13 @@ namespace Mono.Linker.Steps
 			_virtual_methods = new List<MethodDefinition> ();
 			_assemblyLevelAttributes = new Queue<AttributeProviderPair> ();
 			_ivt_attributes = new List<AttributeProviderPair> ();
-			_lateMarkedAttributes = new Queue<(AttributeProviderPair, DependencyInfo, MessageOrigin)> ();
+			_lateMarkedAttributes = new Queue<(AttributeProviderPair, DependencyInfo, MarkScopeStack.Scope)> ();
 			_typesWithInterfaces = new List<TypeDefinition> ();
 			_dynamicInterfaceCastableImplementationTypesDiscovered = new HashSet<AssemblyDefinition> ();
 			_dynamicInterfaceCastableImplementationTypes = new List<TypeDefinition> ();
 			_unreachableBodies = new List<MethodBody> ();
 			_pending_isinst_instr = new List<(TypeDefinition, MethodBody, Instruction)> ();
 			_entireTypesMarked = new HashSet<TypeDefinition> ();
-			_scopeStack = new MarkScopeStack ();
 		}
 
 		public AnnotationStore Annotations => _context.Annotations;
@@ -205,6 +204,7 @@ namespace Mono.Linker.Steps
 			_unreachableBlocksOptimizer = new UnreachableBlocksOptimizer (_context);
 			_markContext = new MarkStepContext ();
 			_dynamicallyAccessedMembersTypeHierarchy = new DynamicallyAccessedMembersTypeHierarchy (_context, this);
+			_scopeStack = new MarkScopeStack ();
 
 			Initialize ();
 			Process ();
@@ -865,7 +865,7 @@ namespace Mono.Linker.Steps
 			if (dynamicDependency.AssemblyName != null) {
 				assembly = _context.TryResolve (dynamicDependency.AssemblyName);
 				if (assembly == null) {
-					_context.LogWarning ($"Unresolved assembly '{dynamicDependency.AssemblyName}' in 'DynamicDependencyAttribute'", 2035, _scopeStack.CurrentScope);
+					_context.LogWarning ($"Unresolved assembly '{dynamicDependency.AssemblyName}' in 'DynamicDependencyAttribute'", 2035, _scopeStack.CurrentScope.Origin);
 					return;
 				}
 			} else {
@@ -877,7 +877,7 @@ namespace Mono.Linker.Steps
 			if (dynamicDependency.TypeName is string typeName) {
 				type = DocumentationSignatureParser.GetTypeByDocumentationSignature (assembly, typeName);
 				if (type == null) {
-					_context.LogWarning ($"Unresolved type '{typeName}' in DynamicDependencyAttribute", 2036, _scopeStack.CurrentScope);
+					_context.LogWarning ($"Unresolved type '{typeName}' in DynamicDependencyAttribute", 2036, _scopeStack.CurrentScope.Origin);
 					return;
 				}
 
@@ -885,7 +885,7 @@ namespace Mono.Linker.Steps
 			} else if (dynamicDependency.Type is TypeReference typeReference) {
 				type = _context.TryResolveTypeDefinition (typeReference);
 				if (type == null) {
-					_context.LogWarning ($"Unresolved type '{typeReference}' in DynamicDependencyAtribute", 2036, _scopeStack.CurrentScope);
+					_context.LogWarning ($"Unresolved type '{typeReference}' in DynamicDependencyAtribute", 2036, _scopeStack.CurrentScope.Origin);
 					return;
 				}
 			} else {
@@ -900,14 +900,14 @@ namespace Mono.Linker.Steps
 			if (dynamicDependency.MemberSignature is string memberSignature) {
 				members = DocumentationSignatureParser.GetMembersByDocumentationSignature (type, memberSignature, acceptName: true);
 				if (!members.Any ()) {
-					_context.LogWarning ($"No members were resolved for '{memberSignature}'.", 2037, _scopeStack.CurrentScope);
+					_context.LogWarning ($"No members were resolved for '{memberSignature}'.", 2037, _scopeStack.CurrentScope.Origin);
 					return;
 				}
 			} else {
 				var memberTypes = dynamicDependency.MemberTypes;
 				members = type.GetDynamicallyAccessedMembers (_context, memberTypes);
 				if (!members.Any ()) {
-					_context.LogWarning ($"No members were resolved for '{memberTypes}'.", 2037, _scopeStack.CurrentScope);
+					_context.LogWarning ($"No members were resolved for '{memberTypes}'.", 2037, _scopeStack.CurrentScope.Origin);
 					return;
 				}
 			}
@@ -1214,7 +1214,7 @@ namespace Mono.Linker.Steps
 
 			if (property != null && _context.Annotations.FlowAnnotations.RequiresDataFlowAnalysis (property.SetMethod)) {
 				var scanner = new ReflectionMethodBodyScanner (_context, this);
-				scanner.ProcessAttributeDataflow (_scopeStack.CurrentScope.MemberDefinition, property.SetMethod, new List<CustomAttributeArgument> { namedArgument.Argument });
+				scanner.ProcessAttributeDataflow (_scopeStack.CurrentScope.Origin.MemberDefinition, property.SetMethod, new List<CustomAttributeArgument> { namedArgument.Argument });
 			}
 		}
 
@@ -1250,7 +1250,7 @@ namespace Mono.Linker.Steps
 
 			if (field != null && _context.Annotations.FlowAnnotations.RequiresDataFlowAnalysis (field)) {
 				var scanner = new ReflectionMethodBodyScanner (_context, this);
-				scanner.ProcessAttributeDataflow (_scopeStack.CurrentScope.MemberDefinition, field, namedArgument.Argument);
+				scanner.ProcessAttributeDataflow (_scopeStack.CurrentScope.Origin.MemberDefinition, field, namedArgument.Argument);
 			}
 		}
 
@@ -1291,7 +1291,7 @@ namespace Mono.Linker.Steps
 			var resolvedConstructor = _context.TryResolveMethodDefinition (ca.Constructor);
 			if (resolvedConstructor != null && _context.Annotations.FlowAnnotations.RequiresDataFlowAnalysis (resolvedConstructor)) {
 				var scanner = new ReflectionMethodBodyScanner (_context, this);
-				scanner.ProcessAttributeDataflow (_scopeStack.CurrentScope.MemberDefinition, resolvedConstructor, ca.ConstructorArguments);
+				scanner.ProcessAttributeDataflow (_scopeStack.CurrentScope.Origin.MemberDefinition, resolvedConstructor, ca.ConstructorArguments);
 			}
 		}
 
@@ -1460,11 +1460,11 @@ namespace Mono.Linker.Steps
 			if (startingQueueCount == 0)
 				return false;
 
-			var skippedItems = new List<(AttributeProviderPair, DependencyInfo, MessageOrigin)> ();
+			var skippedItems = new List<(AttributeProviderPair, DependencyInfo, MarkScopeStack.Scope)> ();
 			var markOccurred = false;
 
 			while (_lateMarkedAttributes.Count != 0) {
-				var (attributeProviderPair, reason, origin) = _lateMarkedAttributes.Dequeue ();
+				var (attributeProviderPair, reason, scope) = _lateMarkedAttributes.Dequeue ();
 				var customAttribute = attributeProviderPair.Attribute;
 				var provider = attributeProviderPair.Provider;
 
@@ -1474,12 +1474,12 @@ namespace Mono.Linker.Steps
 				}
 
 				if (!ShouldMarkCustomAttribute (customAttribute, provider)) {
-					skippedItems.Add ((attributeProviderPair, reason, origin));
+					skippedItems.Add ((attributeProviderPair, reason, scope));
 					continue;
 				}
 
 				markOccurred = true;
-				using (_scopeStack.PushScope (origin)) {
+				using (_scopeStack.PushScope (scope)) {
 					MarkCustomAttribute (customAttribute, reason);
 					MarkSpecialCustomAttributeDependencies (customAttribute, provider);
 				}
@@ -1710,7 +1710,7 @@ namespace Mono.Linker.Steps
 						$"either remove the linker attribute XML portion which removes the attribute instances, " +
 						$"or override the removal by using the linker XML descriptor to keep the attribute type " +
 						$"(which in turn keeps all of its instances).",
-						2045, _scopeStack.CurrentScope, subcategory: MessageSubCategory.TrimAnalysis);
+						2045, _scopeStack.CurrentScope.Origin, subcategory: MessageSubCategory.TrimAnalysis);
 			}
 
 			if (CheckProcessed (type))
@@ -1939,7 +1939,7 @@ namespace Mono.Linker.Steps
 			TypeDefinition typeDefinition = null;
 			switch (attribute.ConstructorArguments[0].Value) {
 			case string s:
-				typeDefinition = _context.TypeNameResolver.ResolveTypeName (s, _scopeStack.CurrentScope.MemberDefinition, out AssemblyDefinition assemblyDefinition)?.Resolve ();
+				typeDefinition = _context.TypeNameResolver.ResolveTypeName (s, _scopeStack.CurrentScope.Origin.MemberDefinition, out AssemblyDefinition assemblyDefinition)?.Resolve ();
 				if (typeDefinition != null)
 					MarkingHelpers.MarkMatchingExportedType (typeDefinition, assemblyDefinition, new DependencyInfo (DependencyKind.CustomAttribute, provider));
 
@@ -2422,7 +2422,7 @@ namespace Mono.Linker.Steps
 					Debug.Assert (instance is MemberReference);
 
 					var scanner = new ReflectionMethodBodyScanner (_context, this);
-					scanner.ProcessGenericArgumentDataFlow (parameter, argument, _scopeStack.CurrentScope.MemberDefinition ?? (instance as MemberReference).Resolve ());
+					scanner.ProcessGenericArgumentDataFlow (parameter, argument, _scopeStack.CurrentScope.Origin.MemberDefinition ?? (instance as MemberReference).Resolve ());
 				}
 
 				if (argumentTypeDef == null)
@@ -2702,8 +2702,8 @@ namespace Mono.Linker.Steps
 
 			// If the caller of a method is already marked with `RequiresUnreferencedCodeAttribute` a new warning should not
 			// be produced for the callee.
-			if (currentScope.MemberDefinition != null &&
-				Annotations.HasLinkerAttribute<RequiresUnreferencedCodeAttribute> (currentScope.MemberDefinition))
+			if (currentScope.UserCodeLocation != null &&
+				Annotations.HasLinkerAttribute<RequiresUnreferencedCodeAttribute> (currentScope.UserCodeLocation))
 				return;
 
 			if (Annotations.TryGetLinkerAttribute (method, out RequiresUnreferencedCodeAttribute requiresUnreferencedCode)) {
@@ -2714,7 +2714,7 @@ namespace Mono.Linker.Steps
 				if (!string.IsNullOrEmpty (requiresUnreferencedCode.Url))
 					message += " " + requiresUnreferencedCode.Url;
 
-				_context.LogWarning (message, 2026, currentScope, MessageSubCategory.TrimAnalysis);
+				_context.LogWarning (message, 2026, currentScope.Origin, MessageSubCategory.TrimAnalysis);
 			}
 		}
 
@@ -2928,7 +2928,7 @@ namespace Mono.Linker.Steps
 				var baseType = _context.ResolveTypeDefinition (method.DeclaringType.BaseType);
 				if (!MarkDefaultConstructor (baseType, new DependencyInfo (DependencyKind.BaseDefaultCtorForStubbedMethod, method)))
 					throw new LinkerFatalErrorException (MessageContainer.CreateErrorMessage ($"Cannot stub constructor on '{method.DeclaringType}' when base type does not have default constructor",
-						1006, origin: _scopeStack.CurrentScope));
+						1006, origin: _scopeStack.CurrentScope.Origin));
 
 				break;
 
@@ -3360,7 +3360,7 @@ namespace Mono.Linker.Steps
 			MarkCustomAttributes (iface, new DependencyInfo (DependencyKind.CustomAttribute, iface));
 			// Blame the interface type on the interfaceimpl itself.
 			MarkType (iface.InterfaceType, reason ?? new DependencyInfo (DependencyKind.InterfaceImplementationInterfaceType, iface));
-			Annotations.MarkProcessed (iface, reason ?? new DependencyInfo (DependencyKind.InterfaceImplementationOnType, _scopeStack.CurrentScope.MemberDefinition));
+			Annotations.MarkProcessed (iface, reason ?? new DependencyInfo (DependencyKind.InterfaceImplementationOnType, _scopeStack.CurrentScope.Origin.MemberDefinition));
 		}
 
 		//
