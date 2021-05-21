@@ -2258,8 +2258,9 @@ namespace Mono.Linker.Dataflow
 
 		void MarkInterfaceImplementation (ref ReflectionPatternContext reflectionContext, InterfaceImplementation interfaceImplementation, DependencyKind dependencyKind = DependencyKind.AccessedViaReflection)
 		{
-			var source = reflectionContext.Source;
-			reflectionContext.RecordRecognizedPattern (interfaceImplementation, () => _markStep.MarkInterfaceImplementation (interfaceImplementation, source, new DependencyInfo (dependencyKind, source)));
+			var origin = reflectionContext.CurrentMessageOrigin;
+			var dependencyInfo = new DependencyInfo (dependencyKind, reflectionContext.Source);
+			reflectionContext.RecordRecognizedPattern (interfaceImplementation, () => _markStep.MarkInterfaceImplementation (interfaceImplementation, origin, dependencyInfo));
 		}
 
 		void MarkConstructorsOnType (ref ReflectionPatternContext reflectionContext, TypeDefinition type, Func<MethodDefinition, bool> filter, BindingFlags? bindingFlags = null)
