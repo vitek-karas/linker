@@ -10,6 +10,7 @@ namespace Mono.Linker.Steps
 {
 	public class MarkScopeStack
 	{
+		readonly LinkContext _context;
 		readonly Stack<Scope> _scopeStack;
 
 		public readonly struct Scope
@@ -34,7 +35,12 @@ namespace Mono.Linker.Steps
 				_origin = origin;
 				_scopeStack = scopeStack;
 
-				_scopeStack.Push (new Scope(origin, origin.MemberDefinition));
+				IMemberDefinition member = origin.MemberDefinition;
+				if (member is MemberReference memberRef && _scopeStack._context.CompilerGeneratedState.IsCompilerGenerated(memberRef)) {
+					member = _scopeStack.CurrentScope.UserCodeLocation;
+				}
+
+				_scopeStack.Push (new Scope(origin, member));
 			}
 
 			public LocalScope(in Scope scope, MarkScopeStack scopeStack)
@@ -76,8 +82,9 @@ namespace Mono.Linker.Steps
 			}
 		}
 
-		public MarkScopeStack ()
+		public MarkScopeStack (LinkContext context)
 		{
+			_context = context;
 			_scopeStack = new Stack<Scope> ();
 		}
 
