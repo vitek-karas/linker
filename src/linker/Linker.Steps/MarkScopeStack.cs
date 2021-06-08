@@ -36,12 +36,11 @@ namespace Mono.Linker.Steps
 
 				// Compiler generated methods and types should "inherit" suppression context
 				// from the user defined method from which the compiler generated them.
-				// This is transfered through the SuppressionContextMember as that should
-				// always point to user defined code (and not compiler generated code).
-				// So if the newly added scope is for compiler generated code
-				// keep the suppression context from the current top of the scope stack.
-				// Otherwise the scope is from user code and so its suppression context
-				// should be the same as the scope itself.
+				// Detecting which method produced which piece of compiler generated code
+				// is currently not possible in all cases, but in cases where it works
+				// we will store the suppression context in the SuppressionContextMember.
+				// For code which is not compiler generated the suppression context
+				// is the same as the message's origin member.
 				IMemberDefinition suppressionContextMember = _scopeStack.GetSuppressionContext (origin.MemberDefinition);
 				_scopeStack.Push (new Scope (new MessageOrigin (origin.MemberDefinition, origin.ILOffset, suppressionContextMember)));
 			}
