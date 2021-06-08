@@ -10,6 +10,7 @@ namespace Mono.Linker
 	// Currently this is implemented using heuristics
 	public class CompilerGeneratedState
 	{
+		readonly LinkContext _context;
 		readonly Dictionary<TypeDefinition, MethodDefinition> _compilerGeneratedTypeToUserCodeMethod;
 		readonly HashSet<TypeDefinition> _typesWithPopulatedCache;
 
@@ -43,7 +44,12 @@ namespace Mono.Linker
 						TypeDefinition stateMachineType = GetFirstConstructorArgumentAsType (attribute);
 						if (stateMachineType != null) {
 							if (!_compilerGeneratedTypeToUserCodeMethod.TryAdd (stateMachineType, method)) {
-								// TODO: Warn here since we have to "user methods" for one state machine
+								var alreadyAssociatedMethod = _compilerGeneratedTypeToUserCodeMethod[stateMachineType];
+								_context.LogWarning (
+									$"Methods '{method.GetDisplayName ()}' and '{alreadyAssociatedMethod.GetDisplayName ()}' are both associated with state machine type '{stateMachineType.GetDisplayName ()}'. This is currently unsupported and may lead to incorrectly reported warnings.",
+									2107,
+									new MessageOrigin (method),
+									MessageSubCategory.TrimAnalysis);
 							}
 						}
 
