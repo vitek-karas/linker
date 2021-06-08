@@ -42,12 +42,7 @@ namespace Mono.Linker.Steps
 				// keep the suppression context from the current top of the scope stack.
 				// Otherwise the scope is from user code and so its suppression context
 				// should be the same as the scope itself.
-				IMemberDefinition suppressionContextMember = origin.MemberDefinition;
-				if (origin.MemberDefinition is MemberReference memberRef &&
-					_scopeStack._context.CompilerGeneratedState.IsCompilerGenerated (memberRef)) {
-					suppressionContextMember = _scopeStack.CurrentScope.Origin.SuppressionContextMember;
-				}
-
+				IMemberDefinition suppressionContextMember = _scopeStack.GetSuppressionContext (origin.MemberDefinition);
 				_scopeStack.Push (new Scope (new MessageOrigin (origin.MemberDefinition, origin.ILOffset, suppressionContextMember)));
 			}
 
@@ -143,5 +138,8 @@ namespace Mono.Linker.Steps
 
 		[Conditional ("DEBUG")]
 		public void AssertIsEmpty () => Debug.Assert (_scopeStack.Count == 0);
+
+		IMemberDefinition GetSuppressionContext (IMemberDefinition sourceMember) =>
+			_context.CompilerGeneratedState.GetUserDefinedMethodForCompilerGeneratedMember (sourceMember) ?? sourceMember;
 	}
 }
