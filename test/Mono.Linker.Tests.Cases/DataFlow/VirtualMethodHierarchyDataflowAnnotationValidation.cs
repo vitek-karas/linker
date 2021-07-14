@@ -15,7 +15,8 @@ namespace Mono.Linker.Tests.Cases.DataFlow
 	[SandboxDependency ("Dependencies/TestSystemTypeBase.cs")]
 
 	// Suppress warnings about accessing methods with annotations via reflection - the test below does that a LOT
-	[UnconditionalSuppressMessage("test", "IL2110")]
+	// (The test accessed these methods through DynamicallyAccessedMembers annotations which is effectively the same reflection access)
+	[UnconditionalSuppressMessage ("test", "IL2110")]
 	class VirtualMethodHierarchyDataflowAnnotationValidation
 	{
 		public static void Main ()
